@@ -1,0 +1,14 @@
+--- doc/etc/pgmoneta.conf.old	2025-04-23 11:26:13.988807179 +0300
++++ doc/etc/pgmoneta.conf	2025-04-23 11:26:32.976627795 +0300
+@@ -10,9 +10,9 @@
+ 
+ log_type = console
+ log_level = info
+-log_path =
++log_path = /var/log/pgmoneta
+ 
+-unix_socket_dir = /tmp/
++unix_socket_dir = /run/pgmoneta
+ 
+ [primary]
+ host = localhost

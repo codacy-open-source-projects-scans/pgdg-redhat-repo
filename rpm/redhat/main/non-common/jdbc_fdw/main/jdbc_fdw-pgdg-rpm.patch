@@ -1,0 +1,32 @@
+--- Makefile.old	2025-03-18 17:12:08.476686135 +0300
++++ Makefile	2025-03-18 17:24:02.825224306 +0300
+@@ -13,22 +13,22 @@
+ 
+ JDBC_CONFIG = jdbc_config
+ 
+-LIBDIR=/usr/lib64/
++LIBDIR=/etc/alternatives/java_sdk_openjdk/lib/server
+ 
+-SHLIB_LINK += -L$(LIBDIR) -ljvm
++SHLIB_LINK += -L$(LIBDIR) -Wl,-rpath,$(LIBDIR) -ljvm
+ 
+ UNAME = $(shell uname)
+ 
+ JAVA_SOURCES = \
+-	JDBCUtils.java \
+-	JDBCDriverLoader.java \
+-	JDBCConnection.java \
+-	resultSetInfo.java
++	$(srcdir)/JDBCUtils.java \
++	$(srcdir)/JDBCDriverLoader.java \
++	$(srcdir)/JDBCConnection.java \
++	$(srcdir)/resultSetInfo.java
+ 
+ # Generate a list of .class files corresponding to .java files
+ JAVA_CLASSES = $(patsubst %.java,%.class,$(JAVA_SOURCES))
+ 
+-PG_CPPFLAGS=-D'SHARE_EXT_DIR=$(datadir)/extension' -I$(libpq_srcdir)
++PG_CPPFLAGS=-D'PKG_LIB_DIR=$(shell pg_config --sharedir)/extension' -I$(libpq_srcdir)
+ 
+ # Target to compile all Java source files
+ all:$(JAVA_CLASSES)
