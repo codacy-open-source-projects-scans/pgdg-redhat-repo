@@ -41,13 +41,13 @@
 
 Summary:	PostgreSQL client programs and libraries
 Name:		%{sname}%{pgmajorversion}
-Version:	18.0
+Version:	18.1
 %if 0%{?suse_version} >= 1500
 # SuSE upstream packages have release numbers like 150200.5.19.1
 # which overrides our packages. Increase our release number on SuSE.
-Release:	4200004PGDG%{?dist}
+Release:	4200002PGDG%{?dist}
 %else
-Release:	4PGDG%{?dist}
+Release:	2PGDG%{?dist}
 %endif
 License:	PostgreSQL
 Url:		https://www.postgresql.org/
@@ -261,10 +261,10 @@ Requires:	libicu-devel
 %if %llvm
 Requires:	%{name}%{?_isa} = %{version}-%{release}
 %if 0%{?suse_version} == 1500
-BuildRequires:	llvm17-devel clang17-devel
+Requires:	llvm17-devel clang17-devel
 %endif
 %if 0%{?suse_version} == 1600
-BuildRequires:	llvm19-devel clang19-devel
+Requires:	llvm19-devel clang19-devel
 %endif
 %if 0%{?fedora} || 0%{?rhel}
 Requires:	llvm-devel >= 17.0 clang-devel >= 17.0
@@ -352,7 +352,7 @@ Provides:	postgresql-libs = %{pgmajorversion} libpq5 >= 10.0
 Requires:	libopenssl3
 %endif
 %if 0%{?suse_version} == 1600
-Requires:       libopenssl3
+Requires:	libopenssl3
 %endif
 %if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
 Requires:	openssl-libs >= 1.1.1k
@@ -1331,6 +1331,13 @@ fi
 %endif
 
 %changelog
+* Sat Nov 15 2025 Devrim Gündüz <devrim@gunduz.org> - 18.1-2PGDG
+- Rebuild on RHEL 9 - aarch64 to fix package signing issue
+
+* Tue Nov 11 2025 Devrim Gündüz <devrim@gunduz.org> - 18.1-1PGDG
+- Update to 18.1 per changes described at:
+  https://www.postgresql.org/docs/release/18.1/
+
 * Fri Nov 7 2025 Devrim Gunduz <devrim@gunduz.org> - 18.0-4PGDG
 - Build against OpenSSL 3 on SLES 15.
 

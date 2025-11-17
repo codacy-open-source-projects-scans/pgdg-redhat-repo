@@ -58,13 +58,13 @@
 
 Summary:	PostgreSQL client programs and libraries
 Name:		%{sname}%{pgmajorversion}
-Version:	16.10
+Version:	16.11
 %if 0%{?suse_version} >= 1315
 # SuSE upstream packages have release numbers like 150200.5.19.1
 # which overrides our packages. Increase our release number on SuSE.
-Release:	420006PGDG%{?dist}
+Release:	420002PGDG%{?dist}
 %else
-Release:	6PGDG%{?dist}
+Release:	2PGDG%{?dist}
 %endif
 License:	PostgreSQL
 Url:		https://www.postgresql.org/
@@ -93,9 +93,6 @@ Patch1:		%{sname}-%{pgmajorversion}-rpm-pgsql.patch
 Patch3:		%{sname}-%{pgmajorversion}-conf.patch
 Patch5:		%{sname}-%{pgmajorversion}-var-run-socket.patch
 Patch6:		%{sname}-%{pgmajorversion}-perl-rpath.patch
-%if 0%{?fedora} == 43
-Patch7:		%{sname}-%{pgmajorversion}-llvm21.patch
-%endif
 
 BuildRequires:	perl glibc-devel bison flex >= 2.5.31
 BuildRequires:	gcc-c++
@@ -342,13 +339,13 @@ Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
 %if %llvm
 Requires:	%{name}%{?_isa} = %{version}-%{release}
 %if 0%{?suse_version} == 1500
-BuildRequires:	llvm17-devel clang17-devel
+Requires:	llvm17-devel clang17-devel
 %endif
 %if 0%{?suse_version} == 1600
-BuildRequires:	llvm19-devel clang19-devel
+Requires:	llvm19-devel clang19-devel
 %endif
 %if 0%{?fedora} || 0%{?rhel}
-BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+Requires:	llvm-devel >= 19.0 clang-devel >= 19.0
 %endif
 %endif
 
@@ -473,9 +470,6 @@ benchmarks.
 %patch -P 3 -p0
 %patch -P 5 -p0
 %patch -P 6 -p0
-%if 0%{?fedora} == 43
-%patch -P 7 -p1
-%endif
 
 %{__cp} -p %{SOURCE12} .
 
@@ -1271,6 +1265,13 @@ fi
 %endif
 
 %changelog
+* Sat Nov 15 2025 Devrim Gunduz <devrim@gunduz.org> - 16.11-2PGDG
+- Rebuild on RHEL 9 - aarch64 to fix package signing issue
+
+* Tue Nov 11 2025 Devrim Gunduz <devrim@gunduz.org> - 16.11-1PGDG
+- Update to 16.11, per changes described at:
+  https://www.postgresql.org/docs/release/16.11/
+
 * Fri Nov 7 2025 Devrim Gunduz <devrim@gunduz.org> - 16.10-6PGDG
 - Build against OpenSSL 3 on SLES 15.
 

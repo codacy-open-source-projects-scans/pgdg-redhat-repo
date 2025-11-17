@@ -1,6 +1,6 @@
 Name:		pgbouncer
 Version:	1.25.0
-Release:	43PGDG%{?dist}
+Release:	45PGDG%{?dist}
 Summary:	Lightweight connection pooler for PostgreSQL
 License:	MIT and BSD
 URL:		https://www.pgbouncer.org/
@@ -37,10 +37,17 @@ BuildRequires:	c-ares-devel >= 1.13
 Requires:	libcares2 >= 1.19
 %endif
 
-%if 0%{?suse_version} >= 1500
+%if 0%{?suse_version} == 1500
 BuildRequires:	openldap2-devel
-%else
+Requires:	libldap-2_4-2
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	openldap2-devel
+Requires:	libldap-2
+%endif
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 9
 BuildRequires:	openldap-devel
+Requires:	openldap
 %endif
 
 BuildRequires:		systemd
@@ -77,6 +84,9 @@ sed -i.fedora \
 %else
 	--with-cares --disable-evdns \
 %endif
+	--with-ldap \
+	--with-systemd \
+	--with-pam
 
 %{__make} %{?_smp_mflags} V=1
 
@@ -151,6 +161,13 @@ fi
 %attr(755,pgbouncer,pgbouncer) %dir /var/run/%{name}
 
 %changelog
+* Thu Nov 13 2025 Devrim Gündüz <devrim@gunduz.org> - 1.25.0-45PGDG
+- Build with ldap support. Per report from Arthur Nascimento.
+ 
+* Wed Nov 12 2025 Devrim Gündüz <devrim@gunduz.org> - 1.25.0-44PGDG
+- Re-add systemd and pam support that I broke in ec52b384. Fixes
+  https://github.com/pgbouncer/pgbouncer/issues/1416
+
 * Mon Nov 10 2025 Devrim Gündüz <devrim@gunduz.org> - 1.25.0-43PGDG
 - Add a patch from upstream to fix ppc64le builds, per:
   https://github.com/pgbouncer/pgbouncer/issues/1413
