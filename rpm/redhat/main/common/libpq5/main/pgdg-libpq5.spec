@@ -5,13 +5,13 @@
 
 Summary:	PostgreSQL Client Library
 Name:		libpq5
-Version:	%{pgmajorversion}.0
+Version:	%{pgmajorversion}.1
 %if 0%{?suse_version} >= 1500
 # SuSE upstream packages have release numbers like 150200.5.19.1
 # which overrides our packages. Increase our release number on SuSE.
-Release:	420004PGDG%{?dist}
+Release:	420001PGDG%{?dist}
 %else
-Release:	4PGDG%{?dist}
+Release:	1PGDG%{?dist}
 %endif
 License:	PostgreSQL
 Url:		https://www.postgresql.org/
@@ -58,8 +58,11 @@ BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	/sbin/ldconfig libicu
 
 %if 0%{?suse_version} >= 1500
-BuildRequires:	libopenssl-devel
-%else
+Requires:	libopenssl3
+BuildRequires:	libopenssl-3-devel
+%endif
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
 
@@ -249,6 +252,10 @@ find_lang_bins %name-devel.lst	pg_config
 %_libdir/pkgconfig/libpq.pc
 
 %changelog
+* Tue Nov 18 2025 Devrim Gündüz <devrim@gunduz.org> - 18.1-1PGDG
+- Update to 18.1
+- Modernise OpenSSL dependencies
+
 * Wed Nov 5 2025 Devrim Gündüz <devrim@gunduz.org> - 18.0-4PGDG
 - Rebuild against OpenSSL 3 on SLES 15
 
