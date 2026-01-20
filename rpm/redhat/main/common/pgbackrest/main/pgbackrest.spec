@@ -3,8 +3,8 @@
 
 Summary:	Reliable PostgreSQL Backup & Restore
 Name:		pgbackrest
-Version:	2.57.0
-Release:	5PGDG%{?dist}
+Version:	2.58.0
+Release:	1PGDG%{?dist}
 License:	MIT
 Url:		http://www.pgbackrest.org/
 Source0:	https://github.com/pgbackrest/pgbackrest/archive/release/%{version}.tar.gz
@@ -21,12 +21,12 @@ BuildRequires:	libzstd-devel meson zlib-devel
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
 
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
 Requires:	lz4-libs libzstd libssh2
 BuildRequires:	lz4-devel bzip2-devel ninja-build
 %endif
@@ -126,6 +126,13 @@ fi
 %attr(-,postgres,postgres) /var/spool/%{name}
 
 %changelog
+* Tue Jan 20 2026 Devrim Gündüz <devrim@gunduz.org> - 2.58.0-1PGDG
+- Update to 2.58.0, per changes described at:
+  https://pgbackrest.org/release.html#2.58.0
+
+* Tue Jan 20 2026 Devrim Gündüz <devrim@gunduz.org> - 2.57.0-6PGDG
+- Rebuild the package because of a signing issue
+
 * Wed Dec 24 2025 Devrim Gündüz <devrim@gunduz.org> - 2.57.0-5PGDG
 - Add Restart=on-failure to unit file. Per
   https://github.com/pgdg-packaging/pgdg-rpms/issues/127
