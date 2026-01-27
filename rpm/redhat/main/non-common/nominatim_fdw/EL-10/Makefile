@@ -10,7 +10,7 @@
 
 ARCH=`rpm --eval "%{_arch}"`
 DIR=`pwd`
-SPECFILE="PyGreSQL.spec"
+SPECFILE="nominatim_fdw.spec"
 
 # Now, include global Makefile
 include ../../../../global/Makefile.global

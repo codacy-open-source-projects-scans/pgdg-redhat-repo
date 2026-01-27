@@ -1,13 +1,7 @@
 %global lcname	pygresql
 
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 10 || 0%{?suse_version} >= 1600
-%{expand: %%global py3ver %(echo `%{__python3} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%else
-%{expand: %%global py3ver %(echo `%{__python3} -c "import sys; sys.stdout.write(sys.version[:3])"`)}
-%endif
-
 Name:		PyGreSQL
-Version:	6.2.0
+Version:	6.2.3
 Release:	1PGDG%{?dist}
 Summary:	A Python client library for PostgreSQL
 
@@ -55,7 +49,7 @@ find -type f -exec chmod 644 {} +
 %files
 %license docs/copyright.rst
 %doc docs/*.rst
-%if 0%{?fedora} >= 43
+%if 0%{?fedora} >= 43 || 0%{?suse_version} >= 1600
 %{python3_sitearch}/%{lcname}-%{version}.dist-info/
 %else
 %{python3_sitearch}/%{name}-%{version}.dist-info/
@@ -64,6 +58,14 @@ find -type f -exec chmod 644 {} +
 %{python3_sitearch}/pgdb/*py*
 
 %changelog
+* Mon Jan 26 2026 Devrim Gündüz <devrim@gunduz.org> - 6.2.3-1PGDG
+- Update to 6.2.3 per changes described at:
+  https://pygresql.org/contents/changelog.html
+
+* Sat Jan 3 2026 Devrim Gündüz <devrim@gunduz.org> - 6.2.2-1PGDG
+- Update to 6.2.2 per changes described at:
+  https://pygresql.org/contents/changelog.html
+
 * Mon Dec 22 2025 Devrim Gündüz <devrim@gunduz.org> - 6.2.0-1PGDG
 - Update to 6.2.0 per changes described at:
   https://pygresql.org/contents/changelog.html
