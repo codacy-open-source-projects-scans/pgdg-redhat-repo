@@ -16,12 +16,7 @@
 %{!?kerberos:%global kerberos 1}
 %{!?ldap:%global ldap 1}
 %{!?libnuma:%global libnuma 1}
-# RHEL 8 does not have io_uring support:
-%if 0%{?rhel} == 8
-%{!?liburing:%global liburing 0}
-%else
 %{!?liburing:%global liburing 1}
-%endif
 %{!?llvm:%global llvm 1}
 %{!?nls:%global nls 1}
 %{!?pam:%global pam 1}
@@ -195,10 +190,10 @@ BuildRequires:	selinux-policy >= 3.4.3
 %if 0%{?suse_version} >= 1500
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
 BuildRequires:	openssl-devel
 %endif
-%if 0%{?fedora} >= 41
+%if 0%{?fedora} >= 42
 BuildRequires:	openssl-devel-engine
 %endif
 %endif
@@ -316,8 +311,8 @@ Requires:	libopenssl3
 %if 0%{?suse_version} == 1600
 Requires:	libopenssl3
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
-Requires:	openssl-libs >= 1.1.1k
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+Requires:	openssl-libs >= 3.2.2
 %endif
 
 %description ecpg-libs
@@ -334,8 +329,8 @@ Requires:	libopenssl3
 %if 0%{?suse_version} == 1600
 Requires:	libopenssl3
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
-Requires:	openssl-libs >= 1.1.1k
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+Requires:	openssl-libs >= 3.2.2
 %endif
 
 %description ecpg-devel
@@ -353,8 +348,8 @@ Requires:	libopenssl3
 %if 0%{?suse_version} == 1600
 Requires:	libopenssl3
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
-Requires:	openssl-libs >= 1.1.1k
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+Requires:	openssl-libs >= 3.2.2
 %endif
 
 %description libs
