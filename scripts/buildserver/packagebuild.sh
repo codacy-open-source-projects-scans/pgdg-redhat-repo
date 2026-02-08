@@ -2,19 +2,38 @@
 
 #########################################################
 #							#
-# Devrim Gündüz <devrim@gunduz.org> - 2024		#
+# Devrim Gündüz <devrim@gunduz.org> - 2026		#
 #							#
 #########################################################
 
 # Include common values:
 source ~/bin/global.sh
 
+# Parse command line arguments
+beta_mode=0
+testing_mode=0
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		--beta)
+			beta_mode=1
+			shift
+			;;
+		--testing)
+			testing_mode=1
+			shift
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
 # Throw an error if less than two arguments are supplied:
 	if [ $# -le 1 ]
 	then
 		echo
 		echo "${red}ERROR:${reset} This script must be run with at least two parameters:"
-		echo "       package name, package version"
+		echo "       [--beta] [--testing] package name, package version"
 		echo "       and optional: The actual package name to sign, and also the PostgreSQL version to build against"
 		echo
 	exit 1
@@ -32,6 +51,35 @@ buildVersion=$3
 #	Build packages		#
 #################################
 
+#################################
+#	Beta repo		#
+#################################
+
+if [ $beta_mode -eq 1 ]
+then
+	# Check if pgBetaVersion is defined and not empty
+	if [ -z "${pgBetaVersion}" ]
+	then
+		echo "${red}ERROR:${reset} Beta mode requested but pgBetaVersion is not defined in global.sh"
+		exit 1
+	fi
+
+	if [ -x ~/git/pgrpms/rpm/redhat/$pgBetaVersion/$packagename/$git_os ]
+	then
+		echo "${green}Ok, building $packagename on $git_os for PostgreSQL $pgBetaVersion beta:${reset}"
+		sleep 1
+		cd ~/git/pgrpms/rpm/redhat/$pgBetaVersion/$packagename/$git_os
+		time make "build${pgBetaVersion}testing"
+		packageVersion=`rpmspec --define "pgmajorversion ${pgBetaVersion}" -q --qf "%{name}: %{Version}\n" *.spec |head -n 1 | awk -F ': ' '{print $2}'`
+		cd
+		sign_package "rpm${pgBetaVersion}testing"
+		exit 0
+	else
+		echo "${red}ERROR:${reset} Package does not exist in PostgreSQL $pgBetaVersion beta"
+		exit 1
+	fi
+fi
+
 # Stable packages can be in 3 places: Either in "common", "non-common" or "extras" directories.
 # This script currently ignores "non-free" repo.
 
@@ -42,10 +90,18 @@ buildVersion=$3
 # If the package is in common, then build it, sign it and exit safely:
 if [ -x ~/git/pgrpms/rpm/redhat/main/common/$packagename/$git_os ]
 then
-echo "${green} Ok, this is a common package, and I am building $packagename for $git_os for common repo.${reset}"
-sleep 1
-	cd ~/git/pgrpms/rpm/redhat/main/common/$packagename/$git_os
-	time make commonbuild
+	if [ $testing_mode -eq 1 ]
+	then
+		echo "${green}Ok, this is a common package, and I am building $packagename for $git_os for common testing repo.${reset}"
+		sleep 1
+		cd ~/git/pgrpms/rpm/redhat/main/common/$packagename/$git_os
+		time make commonbuildtesting
+	else
+		echo "${green}Ok, this is a common package, and I am building $packagename for $git_os for common repo.${reset}"
+		sleep 1
+		cd ~/git/pgrpms/rpm/redhat/main/common/$packagename/$git_os
+		time make commonbuild
+	fi
 	# Get the package version after building the package so that we get the latest version:
 	packageVersion=`rpmspec --define "pgmajorversion ${pgAlphaVersion}" -q --qf "%{name}: %{Version}\n" *.spec |head -n 1 | awk -F ': ' '{print $2}'`
 	cd
@@ -81,11 +137,19 @@ then
 	do
 		if [ -x ~/git/pgrpms/rpm/redhat/main/non-common/$packagename/$git_os ]
 		then
-			echo "Ok, building $packagename on $git_os against PostgreSQL $packageBuildVersion"
-			sleep 1
-			cd ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os
-			echo "time make build${packageBuildVersion}"
-			time make build${packageBuildVersion}
+			if [ $testing_mode -eq 1 ]
+			then
+				echo "${green}Ok, building $packagename on $git_os against PostgreSQL $packageBuildVersion testing${reset}"
+				sleep 1
+				cd ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os
+				time make build${packageBuildVersion}testing
+			else
+				echo "${green}Ok, building $packagename on $git_os against PostgreSQL $packageBuildVersion${reset}"
+				sleep 1
+				cd ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os
+				echo "time make build${packageBuildVersion}"
+				time make build${packageBuildVersion}
+			fi
 			# Get the package version after building the package so that we get the latest version:
 			packageVersion=`rpmspec --define "pgmajorversion ${pgAlphaVersion}" -q --qf "%{name}: %{Version}\n" *.spec |head -n 1 | awk -F ': ' '{print $2}'`
 			cd
@@ -105,17 +169,25 @@ then
 # First make sure that extras repo is available for this platform:
 	if [ -x ~/git/pgrpms/rpm/redhat/main/extras/$packagename/$git_os ]
 	then
-		echo "Ok, building $packagename on $git_os:"
-		sleep 1
-		cd ~/git/pgrpms/rpm/redhat/main/extras/$packagename/$git_os
-		time make extrasbuild
+		if [ $testing_mode -eq 1 ]
+		then
+			echo "${green}Ok, building $packagename on $git_os testing repo:${reset}"
+			sleep 1
+			cd ~/git/pgrpms/rpm/redhat/main/extras/$packagename/$git_os
+			time make extrasbuildtesting
+		else
+			echo "${green}Ok, building $packagename on $git_os:${reset}"
+			sleep 1
+			cd ~/git/pgrpms/rpm/redhat/main/extras/$packagename/$git_os
+			time make extrasbuild
+		fi
 		packageVersion=`rpmspec --define "pgmajorversion ${pgAlphaVersion}" -q --qf "%{name}: %{Version}\n" *.spec |head -n 1 | awk -F ': ' '{print $2}'`
 		cd
 		sign_package pgdg
 		exit 0
 	fi
 else
-	echo "Extras repo is not enabled on this platform"
+	echo "${red}ERROR:${reset} Extras repo is not enabled on this platform"
 	exit 1
 fi
 
@@ -123,5 +195,5 @@ fi
 #   Package is not available!	#
 #################################
 
-echo "Package does not exist in any of the repos"
-exit 0
+echo "${red}ERROR:${reset} Package does not exist in any of the repos"
+exit 1
