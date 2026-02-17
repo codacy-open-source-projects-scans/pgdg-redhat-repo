@@ -1,10 +1,10 @@
 #!/usr/bin/bash
 
-#########################################################
-#                                                       #
-# Devrim Gündüz <devrim@gunduz.org> - 2026            #
-#                                                       #
-#########################################################
+#################################################
+#						#
+# Devrim Gündüz <devrim@gunduz.org> - 2026	#
+#						#
+#################################################
 
 # Make sure only postgres user can run this script:
 if [ "$(id -u)" != "26" ]; then
@@ -105,7 +105,7 @@ preset_gpg_passphrase() {
 		return 1
 	fi
 
-	echo "$GPG_PASSWORD" | /usr/libexec/gpg-preset-passphrase --preset "$keygrip"
+	echo "$GPG_PASSWORD" | /usr/libexec/gpg-preset-passphrase --preset "$keygrip"		# Replace with /usr/lib/gpg-preset-passphrase on SLES 15. SLES 16 uses RHEL's path
 
 	if [ $? -eq 0 ]; then
 		echo "${green}GPG passphrase preset successfully${reset}"
