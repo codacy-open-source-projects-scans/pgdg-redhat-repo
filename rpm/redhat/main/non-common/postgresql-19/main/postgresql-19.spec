@@ -695,7 +695,7 @@ esac
 
 # This is only for systemd supported distros:
 # prep the setup script, including insertion of some values it needs
-sed -e 's|^PGVERSION=.*$|PGVERSION=%{pgmajorversion}|' \
+sed -e 's|^PGMAJORVERSION=.*$|PGMAJORVERSION=%{pgmajorversion}|' \
 	-e 's|^PGENGINE=.*$|PGENGINE=%{pgbaseinstdir}/bin|' \
 	-e 's|^PREVMAJORVERSION=.*$|PREVMAJORVERSION=%{prevmajorversion}|' \
 	<%{SOURCE17} >postgresql-%{pgmajorversion}-setup
@@ -705,7 +705,7 @@ sed -e 's|^PGVERSION=.*$|PGVERSION=%{pgmajorversion}|' \
 %{__ln_s} ../../../../../../../../../../../../../../%{pgbaseinstdir}/bin/postgresql-%{pgmajorversion}-setup %{buildroot}%{_bindir}/
 
 # prep the startup check script, including insertion of some values it needs
-sed -e 's|^PGVERSION=.*$|PGVERSION=%{pgmajorversion}|' \
+sed -e 's|^PGMAJORVERSION=.*$|PGMAJORVERSION=%{pgmajorversion}|' \
 	-e 's|^PREVMAJORVERSION=.*$|PREVMAJORVERSION=%{prevmajorversion}|' \
 	-e 's|^PGDOCDIR=.*$|PGDOCDIR=%{_pkgdocdir}|' \
 	<%{SOURCE10} >%{sname}-%{pgmajorversion}-check-db-dir
@@ -855,19 +855,6 @@ if [ $1 -eq 1 ] ; then
    %systemd_post %{sname}-%{pgpackageversion}.service
    %endif
 fi
-
-# postgres' .bash_profile.
-# We now don't install .bash_profile as we used to in pre 9.0. Instead, use cat,
-# so that package manager will be happy during upgrade to new major version.
-echo "[ -f /etc/profile ] && source /etc/profile
-PGDATA=/var/lib/pgsql/%{pgmajorversion}/data
-export PGDATA
-# If you want to customize your settings,
-# Use the file below. This is not overridden
-# by the RPMS.
-[ -f /var/lib/pgsql/.pgsql_profile ] && source /var/lib/pgsql/.pgsql_profile" > /var/lib/pgsql/.bash_profile
-chown postgres: /var/lib/pgsql/.bash_profile
-chmod 700 /var/lib/pgsql/.bash_profile
 
 %preun server
 if [ $1 -eq 0 ] ; then
