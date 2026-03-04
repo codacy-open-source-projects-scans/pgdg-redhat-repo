@@ -24,6 +24,20 @@ VALID_ARCH=("aarch64" "ppc64le" "x86_64")
 VALID_PG_VERSIONS=(13 14 15 16 17 18)
 VALID_REDHAT_OS_VERSIONS=(7 8.10 9.6 9.7 10.0 10.1)
 VALID_FEDORA_OS_VERSIONS=(41 42 43)
+VALID_SLES_OS_VERSIONS=(15.5 15.6 15.7 15.8 16.0)
+
+# Base directories per OS distro
+BASE_DIR_redhat="/srv/yum/yum"
+BASE_DIR_fedora="/srv/yum/yum"
+BASE_DIR_suse="/srv/zypp/zypp"
+
+# Non-free repo base directory (redhat only)
+BASE_DIR_non_free="/srv/yum/yum/non-free"
+
+# S3 bucket per OS distro
+S3_BUCKET_redhat="s3://yum-archive.postgresql.org"
+S3_BUCKET_fedora="s3://yum-archive.postgresql.org"
+S3_BUCKET_suse="s3://zypp-archive.postgresql.org"
 ```
 
 Also defines `is_valid()`, a helper used by other scripts for safe exact-match validation (avoids regex dot-wildcard issues with dotted version strings like `9.6`).
@@ -65,11 +79,12 @@ aws_sync.sh --os <os> --ver <version> [--arch <arch>] [--pg <pg_version>] [optio
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `--os` | Yes | OS type: `rhel` or `fedora` |
+| `--os` | Yes | OS type: `rhel`, `fedora`, or `sles` |
 | `--ver` | Yes | OS version, e.g. `9.6`, `10.0`, `42` |
 | `--arch` | No | Architecture: `aarch64`, `ppc64le`, `x86_64`. If omitted, all three are synced. |
 | `--pg` | No | PostgreSQL major version, e.g. `16`. If omitted, the common repo is synced instead. |
 | `--extras=1` | No | Also sync the extras repo (redhat only). |
+| `--non-free` | No | Sync non-free repos for all PG versions (redhat only). |
 | `--dry-run` | No | Print what would be run without executing anything. |
 | `--debug` | No | Print resolved parameter values before running. |
 
@@ -95,6 +110,20 @@ Sync PG 16 for RHEL 10.0, all architectures, including extras:
 aws_sync.sh --os rhel --ver 10.0 --pg 16 --extras=1
 ```
 
+Sync PG 16 for SLES 15.6, all architectures:
+```bash
+aws_sync.sh --os sles --ver 15.6 --pg 16
+```
+
+Sync PG 16 for RHEL 9.6 including non-free repos:
+```bash
+aws_sync.sh --os rhel --ver 9.6 --pg 16 --non-free
+```
+Sync the common repo for SLES 15.7, x86_64 only, dry run:
+```bash
+aws_sync.sh --os sles --ver 15.7 --arch x86_64 --dry-run
+```
+
 ### What it does, step by step
 
 1. Validates `--os`, `--arch` (if given), and `--pg` (if given) against the config arrays.
@@ -104,6 +133,7 @@ aws_sync.sh --os rhel --ver 10.0 --pg 16 --extras=1
    - If `--pg` was provided → syncs `<pg>/<osdistro>/<os>-<ver>-<arch>/` to S3.
    - If any sync succeeded → removes `testing/[common/|debug/]<pgver>/<osdistro>/<os>-<ver>-<arch>/` for every PG version.
    - If `--extras=1` → syncs `extras/<osdistro>/<arch>/` to S3.
+4. After the arch loop, if `--non-free` → syncs `non-free/<pgver>/` to `$S3_BUCKET/non-free/<pgver>/` for every entry in `VALID_PG_VERSIONS` (redhat only; local root: `/srv/yum/yum/non-free/`).
 
 ---
 
@@ -123,11 +153,12 @@ aws_sync_archive.sh --os-name <fedora|redhat> [--arch <arch>] [--os-version <ver
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `--os-name` | Yes | `redhat` or `fedora` |
+| `--os-name` | Yes | `redhat`, `fedora`, or `sles` |
 | `--arch` | No | Pin to one architecture. If omitted, all architectures are synced (via `aws_sync.sh`). |
 | `--os-version` | No | Pin to one OS version. If omitted, all valid versions for the OS are used. |
 | `--pg-version` | No | Pin to one PG major version. If omitted, all versions in `VALID_PG_VERSIONS` are used. |
 | `--extras=1` | No | Pass through to `aws_sync.sh` (redhat only). |
+| `--non-free` | No | Pass through to `aws_sync.sh`; sync non-free repos for all PG versions (redhat only). Rejected with an error if `--os-name` is not `redhat`. |
 | `--dry-run` | No | Passed through to `aws_sync.sh`. |
 | `--debug` | No | Passed through to `aws_sync.sh`. |
 
@@ -155,6 +186,21 @@ aws_sync_archive.sh --os-name fedora --os-version 42 --dry-run
 Sync PG 17 for RHEL 9.6, all architectures, with extras:
 ```bash
 aws_sync_archive.sh --os-name redhat --os-version 9.6 --pg-version 17 --extras=1
+```
+
+Sync all PG versions for all SLES OS versions, all architectures (will prompt for confirmation):
+```bash
+aws_sync_archive.sh --os-name sles
+```
+
+Sync PG 16 for SLES 15.6, x86_64 only:
+```bash
+aws_sync_archive.sh --os-name sles --os-version 15.6 --pg-version 16 --arch x86_64
+```
+
+Sync all PG versions for RHEL 9.6 including non-free repos:
+```bash
+aws_sync_archive.sh --os-name redhat --os-version 9.6 --non-free
 ```
 
 ---
@@ -194,9 +240,10 @@ cp aws_sync_archive_completion.sh /etc/bash_completion.d/
 Edit **only** `aws_sync_config.sh`. All scripts and tab-completion pick up the change automatically.
 
 ```bash
-# Example: add RHEL 10.2 and PG 19
+# Example: add RHEL 10.2, PG 19, and SLES 15.8
 VALID_REDHAT_OS_VERSIONS=(7 8.10 9.6 9.7 10.0 10.1 10.2)
 VALID_PG_VERSIONS=(13 14 15 16 17 18 19)
+VALID_SLES_OS_VERSIONS=(15.6 15.7 15.8 16.0)
 ```
 
 > **Note on dotted version strings:** validation uses exact string matching (not regex), so versions like `9.6` or `10.0` are handled safely.

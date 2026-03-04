@@ -2,7 +2,7 @@
 
 Summary:	PostgreSQL based time-series database
 Name:		%{sname}-tsl_%{pgmajorversion}
-Version:	2.25.1
+Version:	2.25.2
 Release:	1PGDG%{?dist}
 License:	Timescale
 Source0:	https://github.com/timescale/%{sname}/archive/%{version}.tar.gz
@@ -66,6 +66,14 @@ cd build; %{__make} %{?_smp_mflags} DESTDIR=%{buildroot} install
 %{pginstdir}/lib/pgxs/src/test/perl/TimescaleNode.pm
 
 %changelog
+* Tue Mar 3 2026 Devrim Gündüz <devrim@gunduz.org> - 2.25.2-1PGDG
+- Update to 2.25.2, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.25.2
+
+* Tue Feb 24 2026 Devrim Gündüz <devrim@gunduz.org> - 2.25.1-2PGDG
+- Add a a patch from upstream to fix RHEL 8 issues. Per:
+  https://github.com/timescale/timescaledb/issues/9274
+
 * Tue Feb 17 2026 Devrim Gündüz <devrim@gunduz.org> - 2.25.1-1PGDG
 - Update to 2.25.1, per changes described at:
   https://github.com/timescale/timescaledb/releases/tag/2.25.1

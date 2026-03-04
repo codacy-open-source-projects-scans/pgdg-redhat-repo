@@ -4,8 +4,8 @@
 
 Summary:		Pgpool is a connection pooling/replication server for PostgreSQL
 Name:			%{sname}
-Version:		4.7.0
-Release:		2PGDG%{?dist}
+Version:		4.7.1
+Release:		1PGDG%{?dist}
 License:		BSD
 URL:			https://pgpool.net
 Source0:		https://www.pgpool.net/mediawiki/images/%{sname}-%{version}.tar.gz
@@ -121,7 +121,7 @@ export PATH=%{pginstdir}/bin/:$PATH
 %{__install} -m 0644 %{SOURCE7} %{buildroot}/%{_tmpfilesdir}/%{sname}.conf
 
 # nuke libtool archive and static lib
-%{__rm} -f %{buildroot}%{_libdir}/libpcp.{a,la}
+%{__rm} -f %{buildroot}%{_libdir}/libpgpoolpcp.{a,la}
 # Remove bitcode files
 %{__rm} -rf %{buildroot}%{pginstdir}/lib/bitcode/
 # Remove extension subpackage files from main package.
@@ -193,9 +193,13 @@ fi
 %{_bindir}/pcp_stop_pgpool
 %{_bindir}/pcp_watchdog_info
 %{_bindir}/wd_cli
-%{_libdir}/libpcp.so*
+%{_libdir}/libpgpoolpcp.so*
 
 %changelog
+* Thu Feb 26 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.1-1PGDG
+- Update to 4.7.1 per changes described at:
+  https://www.pgpool.net/docs/latest/en/html/release-4-7-1.html
+
 * Wed Dec 24 2025 Devrim Gündüz <devrim@gunduz.org> - 4.7.0-2PGDG
 - Add Restart=on-failure to unit file. Per
   https://github.com/pgdg-packaging/pgdg-rpms/issues/127
