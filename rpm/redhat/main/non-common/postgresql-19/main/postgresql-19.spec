@@ -1,3 +1,4 @@
+%global debug_package %{nil}
 %undefine _package_note_file
 
 # These are macros to be used with find_lang and other stuff
@@ -69,6 +70,11 @@ Patch1:		%{sname}-%{pgmajorversion}-rpm-pgsql.patch
 Patch3:		%{sname}-%{pgmajorversion}-conf.patch
 Patch5:		%{sname}-%{pgmajorversion}-var-run-socket.patch
 Patch6:		%{sname}-%{pgmajorversion}-perl-rpath.patch
+%if 0%{?fedora} == 44
+Patch7:		%{sname}-%{pgmajorversion}-llvm22-0001-jit-Skip-local-SectionMemoryManager-for-LLVM-22.patch
+Patch8:		%{sname}-%{pgmajorversion}-llvm22-0002-jit-Stop-using-lifetime.end-intrinsic-for-LLVM-22.patch
+Patch9:		%{sname}-%{pgmajorversion}-llvm22-0003--jit-Fix-integer-constants-for-LLVM-22.patch
+%endif
 
 BuildRequires:	perl glibc-devel bison >= 3.0.4 flex >= 2.6.1
 BuildRequires:	gcc-c++ libcurl-devel >= 7.61.0
@@ -500,6 +506,11 @@ and benchmarks.
 %patch -P 3 -p0
 %patch -P 5 -p0
 %patch -P 6 -p0
+%if 0%{?fedora} == 44
+%patch -P 7 -p1
+%patch -P 8 -p1
+%patch -P 9 -p1
+%endif
 
 %{__cp} -p %{SOURCE12} .
 
@@ -759,6 +770,7 @@ touch -r %{SOURCE10} %{sname}-%{pgmajorversion}-check-db-dir
 	strip *.so
 	%{__rm} -f GNUmakefile Makefile *.o
 	chmod 0755 pg_regress regress.so
+	cp regress.so  %{buildroot}%{pgbaseinstdir}/lib/regress.so
 	popd
 	%{__cp} %{SOURCE4} %{buildroot}%{pgbaseinstdir}/lib/test/regress/Makefile
 	chmod 0644 %{buildroot}%{pgbaseinstdir}/lib/test/regress/Makefile
@@ -1052,6 +1064,7 @@ fi
 %{pgbaseinstdir}/lib/pg_freespacemap.so
 %{pgbaseinstdir}/lib/pg_logicalinspect.so
 %{pgbaseinstdir}/lib/pg_overexplain.so
+%{pgbaseinstdir}/lib/pg_plan_advice.so
 %{pgbaseinstdir}/lib/pg_prewarm.so
 %{pgbaseinstdir}/lib/pg_stat_statements.so
 %{pgbaseinstdir}/lib/pg_surgery.so
@@ -1313,6 +1326,7 @@ fi
 %defattr(-,postgres,postgres)
 %attr(-,postgres,postgres) %{pgbaseinstdir}/lib/test/*
 %attr(-,postgres,postgres) %dir %{pgbaseinstdir}/lib/test
+%{pgbaseinstdir}/lib/regress.so
 %endif
 
 %changelog
