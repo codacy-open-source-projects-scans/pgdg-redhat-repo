@@ -86,9 +86,15 @@ sync_common() {
 		echo "${green}=== Syncing PostgreSQL common RPMs for $os - $osarch ===${reset}"
 	fi
 
-	export COMMON_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLRPMS
-	export COMMON_SRPM_DIR=/var/lib/pgsql/rpmcommon/ALLSRPMS
-	export COMMON_DEBUG_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLDEBUGRPMS
+	if [ $TESTING_MODE -eq 1 ]; then
+		export COMMON_RPM_DIR=/var/lib/pgsql/rpmcommontesting/ALLRPMS
+		export COMMON_SRPM_DIR=/var/lib/pgsql/rpmcommontesting/ALLSRPMS
+		export COMMON_DEBUG_RPM_DIR=/var/lib/pgsql/rpmcommontesting/ALLDEBUGRPMS
+	else
+		export COMMON_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLRPMS
+		export COMMON_SRPM_DIR=/var/lib/pgsql/rpmcommon/ALLSRPMS
+		export COMMON_DEBUG_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLDEBUGRPMS
+	fi
 
 	# Create directories for binary and source RPMs
 	mkdir -p $COMMON_RPM_DIR
@@ -96,8 +102,13 @@ sync_common() {
 	mkdir -p $COMMON_DEBUG_RPM_DIR
 
 	# rsync binary and source RPMs to their own directories:
-	rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommon/RPMS/$osarch/ /var/lib/pgsql/rpmcommon/RPMS/noarch/ $COMMON_RPM_DIR
-	rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommon/SRPMS/ $COMMON_SRPM_DIR
+	if [ $TESTING_MODE -eq 1 ]; then
+		rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommontesting/RPMS/$osarch/ /var/lib/pgsql/rpmcommontesting/RPMS/noarch/ $COMMON_RPM_DIR
+		rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommontesting/SRPMS/ $COMMON_SRPM_DIR
+	else
+		rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommon/RPMS/$osarch/ /var/lib/pgsql/rpmcommon/RPMS/noarch/ $COMMON_RPM_DIR
+		rsync --checksum -av --delete --stats /var/lib/pgsql/rpmcommon/SRPMS/ $COMMON_SRPM_DIR
+	fi
 
 	# Move debuginfo and debugsource packages to a separate directory.
 	# First clean the old ones, and then copy existing ones:
