@@ -1,16 +1,31 @@
 %global sname pg_cron
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Summary:	Run periodic jobs in PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
-Version:	1.6.7
-Release:	5PGDG%{dist}
+Version:	1.6.8
+Release:	3PGDG%{dist}
 License:	PostgreSQL
 Source0:	https://github.com/citusdata/%{sname}/archive/v%{version}.tar.gz
 URL:		https://github.com/citusdata/%{sname}
 BuildRequires:	postgresql%{pgmajorversion}-devel libxml2-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 Requires(post):	%{_sbindir}/update-alternatives
 Requires(postun):	%{_sbindir}/update-alternatives
 
@@ -18,7 +33,7 @@ Requires(postun):	%{_sbindir}/update-alternatives
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel openldap2-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel openldap-devel
 %endif
@@ -41,7 +56,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -54,13 +73,21 @@ This package provides JIT support for pg_cron
 %setup -q -n %{sname}-%{version}
 
 %build
-PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
+PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
-PATH=%{pginstdir}/bin/:$PATH %make_install
+PATH=%{pginstdir}/bin/:$PATH %make_install %{with_llvm_arg}
 # Install documentation with a better name:
 %{__mkdir} -p %{buildroot}%{pginstdir}/doc/extension
 %{__cp} README.md %{buildroot}%{pginstdir}/doc/extension/README-%{sname}.md
+
+%check
+%if %runselftest
+# pg_cron's installcheck runs the tests in a temporary instance of its own,
+# with pg_cron preloaded, so there is no need to start a server here.
+%pgdg_check_init
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %defattr(-,root,root,-)
@@ -78,6 +105,31 @@ PATH=%{pginstdir}/bin/:$PATH %make_install
 %endif
 
 %changelog
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.8-3PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.8-2PGDG
+- Rebuild on AL 2023 because of a signature issue.
+
+* Wed Sep 9 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.8-1PGDG
+- Update to 1.6.8, per changes described at:
+  https://github.com/citusdata/pg_cron/releases/tag/v1.6.8
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.6.7-8PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 1.6.7-7PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 1.6.7-6PGDG
+- Add Amazon Linux 2023 support.
+
 * Wed Mar 11 2026 John K. Harvey <john.harvey@snowflake.com> - 1.6.7-5PGDG
 - Adjust license type to match source code
 

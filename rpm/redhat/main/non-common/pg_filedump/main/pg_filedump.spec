@@ -1,18 +1,42 @@
 %global sname pg_filedump
 
-%global pg_fdmajorver 17
-%global pg_fdminorver 4
+%{!?runselftest:%global runselftest 0}
+
+%global pg_fdmajorver 19
+%global pg_fdminorver 0
 
 %global sversion REL_%{pg_fdmajorver}_%{pg_fdminorver}
 
 Summary:	PostgreSQL File Dump Utility
 Name:		%{sname}_%{pgmajorversion}
 Version:	%{pg_fdmajorver}.%{pg_fdminorver}
-Release:	1PGDG%{?dist}
+Release:	5PGDG%{?dist}
 URL:		https://github.com/df7cb/%{sname}
 Source0:	https://github.com/df7cb/%{sname}/archive/%{sversion}.tar.gz
+Patch0:		%{sname}-makefile-rpm-gcc.patch
 License:	GPLv2+
+BuildRequires:	gcc make
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+%endif
 BuildRequires:	postgresql%{pgmajorversion}-devel
+# The static libraries (libpgcommon, libpgport) are in the -static subpackage
+# as of PostgreSQL 19:
+%if %{pgmajorversion} >= 19
+BuildRequires:	postgresql%{pgmajorversion}-static
+%endif
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 # lz4 dependency
 %if 0%{?suse_version} >= 1500
 BuildRequires:	liblz4-devel
@@ -31,6 +55,7 @@ Display formatted contents of a PostgreSQL heap/index/control file.
 
 %prep
 %setup -q -n %{sname}-%{sversion}
+%patch -P0 -p0
 
 %build
 export CFLAGS="$RPM_OPT_FLAGS"
@@ -43,12 +68,41 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
 %{__mkdir} -p %{buildroot}%{pginstdir}/bin
 %{__install} -m 755 pg_filedump %{buildroot}%{pginstdir}/bin
 
+%check
+%if %runselftest
+# Only the regression tests: the TAP test (t/001_basic.pl) dies halfway
+# through (exit 29, no failed test) in the build environment.
+%pgdg_check_installcheck TAP_TESTS=
+%endif
+
 %files
 %defattr(-,root,root)
 %{pginstdir}/bin/pg_filedump
 %doc README.pg_filedump.md
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 19.0-5PGDG
+- Fix the clang/llvm BuildRequires: the plain "clang" added earlier does
+  not work on SLES. Use the versioned packages per distro, as the other
+  packages do.
+
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 19.0-4PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+- Add postgresqlNN-static to BuildRequires for PostgreSQL 19+: libpgcommon
+  and libpgport static libraries are in that subpackage now.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 19.0-3PGDG
+- Add missing BR
+
+* Thu Jul 23 2026 Devrim Gündüz <devrim@gunduz.org> - 19.0-2PGDG
+- Add a patch to fix(?) intermittent build issues on Fedora.
+
+* Thu Jul 23 2026 Devrim Gündüz <devrim@gunduz.org> - 19.0-1PGDG
+- Update to 19.0 per changes described at:
+  https://github.com/df7cb/pg_filedump/releases/tag/REL_19_0
+
 * Sun Apr 20 2025 Devrim Gündüz <devrim@gunduz.org> - 17.4-1PGDG
 - Update to 17.4 per changes described at:
   https://github.com/df7cb/pg_filedump/releases/tag/REL_17_4

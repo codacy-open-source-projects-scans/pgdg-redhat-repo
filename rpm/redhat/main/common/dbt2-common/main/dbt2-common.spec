@@ -3,16 +3,28 @@
 
 Summary:	Database Test 2 Differences from the TPC-C - Common package
 Name:		%{sname}-common
-Version:	0.61.7
-Release:	3PGDG%{dist}
+Version:	0.62.0
+Release:	2PGDG%{dist}
 License:	GPLv2+
 Source0:	https://github.com/osdldbt/%{sname}/archive/refs/tags/v%{version}.tar.gz
 URL:		https://github.com/osdldbt/%{sname}/
-Patch0:		%{sname}-cmakelists-rpm.patch
 Patch1:		%{sname}-profile.patch
 
 BuildRequires:	cmake curl-devel libev-devel
-BuildRequires:	libpq5-devel gcc-c++ openssl-devel
+BuildRequires:	libpq5-devel gcc-c++
+
+%if 0%{?suse_version} >= 1500
+Requires:	libopenssl3
+BuildRequires:	libopenssl-3-devel
+%endif
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
+Requires:	openssl-libs >= 1.1.1k
+BuildRequires:	openssl-devel
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44 && !0%{?amzn}
+BuildRequires:	openssl-devel-engine
+%endif
+
 %if 0%{?suse_version} >= 1500
 BuildRequires:	cmake-full
 %else
@@ -23,7 +35,7 @@ BuildRequires:	cmake-rpm-macros
 BuildRequires:	libexpat-devel
 Requires:	libev4
 %else
-BuildRequires:	expat-devel
+BuildRequires:	expat-devel libev-devel
 Requires:	libev
 %endif
 
@@ -41,7 +53,6 @@ This package includes binaries to run the test.
 
 %prep
 %setup -q -n %{sname}-%{version}
-%patch -P 0 -p0
 %patch -P 1 -p0
 
 %build
@@ -76,6 +87,12 @@ popd
 %{_mandir}/man1/dbt2*
 
 %changelog
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 0.62.0-2PGDG
+- Fix macros for Amazon Linux 2023
+
+* Fri Aug 14 2026 Devrim Gündüz <devrim@gunduz.org> - 0.62.0-1PGDG
+- Update to 0.62.0
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 0.61.7-3PGDG
 - (Once again) fix builds against CMake 4
 

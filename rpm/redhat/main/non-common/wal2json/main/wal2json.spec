@@ -1,17 +1,32 @@
 %global sname wal2json
-%global wal2json_rel 2_6
+%global wal2json_rel 2_7
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Summary:	JSON output plugin for changeset extraction
 Name:		%{sname}_%{pgmajorversion}
-Version:	2.6
-Release:	5PGDG%{?dist}
+Version:	2.7
+Release:	1PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/eulerto/%{sname}/archive/%{sname}_%{wal2json_rel}.tar.gz
 URL:		https://github.com/eulerto/wal2json
 BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %description
 wal2json is an output plugin for logical decoding. It means that the
@@ -37,7 +52,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -50,16 +69,31 @@ This package provides JIT support for wal2json
 %setup -q -n %{sname}-%{sname}_%{wal2json_rel}
 
 %build
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %make_install DESTDIR=%{buildroot}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %make_install %{with_llvm_arg} DESTDIR=%{buildroot}
 %{__install} -d %{buildroot}/%{pginstdir}/doc/extension/
 %{__mv} README.md  %{buildroot}/%{pginstdir}/doc/extension/README-%{sname}.md
 
 %postun -p /sbin/ldconfig
 %post -p /sbin/ldconfig
+
+%check
+%if %runselftest
+# The tests create logical replication slots. Recent PostgreSQL minor
+# releases only allow the output plugins listed in output_plugin_libraries,
+# so add wal2json there when it exists.
+%pgdg_check_init
+opl=
+if postgres --describe-config | grep -q '^output_plugin_libraries'; then
+	opl="output_plugin_libraries = 'pgoutput, wal2json'"
+fi
+pgdg_check_start main "wal_level = logical" "max_replication_slots = 10" \
+	${opl:+"$opl"}
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %doc %{pginstdir}/doc/extension/README-%{sname}.md
@@ -72,6 +106,29 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %make_install DESTDIR=%{buildroot}
 %endif
 
 %changelog
+* Fri Oct 09 2026 Devrim Gunduz <devrim@gunduz.org> - 2.7-1PGDG
+- Update to 2.7, per changes described at:
+  https://github.com/eulerto/wal2json/releases/tag/wal2json_2_7
+- Add PostgreSQL 19 support.
+- The tests no longer use test_decoding, and create their database as UTF8
+  themselves: remove the postgresql-contrib BuildRequires and C.UTF-8.
+- Per https://github.com/pgdg-packaging/pgdg-rpms/issues/349
+
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 2.6-8PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 2.6-7PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.6-5PGDG
+- Add Amazon Linux 2023 support.
+
 * Wed Oct 01 2025 Yogesh Sharma <yogesh.sharma@catprosystems.com> - 2.6-4PGDG
 - Bump release number (missed in previous commit)
 

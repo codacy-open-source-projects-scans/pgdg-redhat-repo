@@ -3,13 +3,19 @@
 
 Summary:	Automate pg_dump | pg_restore between two running Postgres servers
 Name:		%{sname}
-Version:	0.17
-Release:	4PGDG%{?dist}
+Version:	0.18
+Release:	3PGDG%{?dist}
 License:	PostgreSQL
 Source0:	https://github.com/dimitri/%{sname}/archive/refs/tags/v%{version}.tar.gz
 URL:		https://github.com/dimitri/%{sname}
+BuildRequires:	gcc make
 BuildRequires:	postgresql%{pgmajorversion}-devel gc-devel
-BuildRequires:	krb5-devel bison flex sqlite-devel
+# The static libraries (libpgcommon, libpgport) are in the -static subpackage
+# as of PostgreSQL 19:
+%if %{pgmajorversion} >= 19
+BuildRequires:	postgresql%{pgmajorversion}-static
+%endif
+BuildRequires:	bison flex krb5-devel libselinux-devel >= 2.9 sqlite-devel
 # zstd dependency
 %if 0%{?suse_version} >= 1500
 BuildRequires:	libzstd-devel >= 1.4.0
@@ -33,13 +39,20 @@ Requires:	lz4-libs
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	numactl-devel
+Requires:	numactl-libs
+%else
+BuildRequires:	libnuma-devel
+Requires:	libnuma1
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
 BuildRequires:	libxml2-devel libxslt-devel pam-devel
 BuildRequires:	readline-devel zlib-devel
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	gc
 %endif
 %if 0%{?suse_version} >= 1500
@@ -57,6 +70,11 @@ pg_restore jobs.
 %prep
 %setup -q -n %{sname}-%{version}
 
+%build
+# -Wl,-pie in pgcopydb's SECURITY_CFLAGS is redundant (RPM hardening specs
+# handle PIE on RHEL) and broken on newer toolchains. Strip it unconditionally.
+sed -i 's/ -Wl,-pie\b//g' src/bin/pgcopydb/Makefile
+
 USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags}
 
 %install
@@ -69,6 +87,18 @@ USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} DESTDIR=%{build
 %{pginstdir}/bin/pgcopydb
 
 %changelog
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 0.18-3PGDG
+- Add missing BR
+- Add postgresqlNN-static to BuildRequires for PostgreSQL 19+: libpgcommon
+  and libpgport static libraries are in that subpackage now.
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 0.18-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Sun Jun 28 2026 Devrim Gündüz <devrim@gunduz.org> - 0.18-1PGDG
+- Update to 0.18 per changes described at:
+  https://github.com/dimitri/pgcopydb/releases/tag/v0.18
+
 * Thu Nov 20 2025 Devrim Gündüz <devrim@gunduz.org> - 0.17-4PGDG
 - Modernise OpenSSL dependencies.
 

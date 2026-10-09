@@ -3,10 +3,21 @@
 
 %{!?llvm:%global llvm 1}
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 Summary:	PostgreSQL extension that transforms Postgres into a distributed database
 Name:		%{sname}_%{pgmajorversion}
-Version:	14.0.0
-Release:	1PGDG%{dist}
+Version:	14.2.0
+Release:	4PGDG%{dist}
 License:	AGPLv3
 URL:		https://github.com/citusdata/%{sname}
 Source0:	https://github.com/citusdata/%{sname}/archive/v%{version}.tar.gz
@@ -33,7 +44,7 @@ Requires:	libzstd
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -72,7 +83,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -86,10 +101,10 @@ This package provides JIT support for citus
 
 %build
 %configure PG_CONFIG=%{pginstdir}/bin/pg_config
-make %{?_smp_mflags}
+make %{?_smp_mflags} %{with_llvm_arg}
 
 %install
-%make_install
+%make_install %{with_llvm_arg}
 # Install documentation with a better name:
 %{__mkdir} -p %{buildroot}%{pginstdir}/doc/extension
 %{__cp} README.md %{buildroot}%{pginstdir}/doc/extension/README-%{sname}.md
@@ -128,6 +143,27 @@ make %{?_smp_mflags}
 %endif
 
 %changelog
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 14.2.0-4PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 14.2.0-3PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 14.2.0-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Thu Aug 6 2026 Devrim Gunduz <devrim@gunduz.org> - 14.2.0-1PGDG
+- Update to 14.2.0 per changes described at:
+  https://github.com/citusdata/citus/releases/tag/v14.2.0
+
+* Wed Jul 1 2026 Devrim Gunduz <devrim@gunduz.org> - 14.1.0-1PGDG
+- Update to 14.1.0 per changes described at:
+  https://github.com/citusdata/citus/releases/tag/v14.1.0
+
 * Tue Feb 10 2026 Devrim Gunduz <devrim@gunduz.org> - 14.0.0-1PGDG
 - Update to 14.0.0 per changes described at:
   https://github.com/citusdata/citus/blob/main/CHANGELOG.md#citus-v1400-february-9-2026

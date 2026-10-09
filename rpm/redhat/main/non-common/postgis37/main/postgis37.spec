@@ -1,0 +1,461 @@
+%undefine _debugsource_packages
+%global postgismajorversion 3.7
+%global postgissomajorversion 3
+%global postgiscurrmajorversion %(echo %{postgismajorversion}|tr -d '.')
+%global sname	postgis
+
+%pgdg_set_gis_variables
+
+# Override some variables:
+%global	geosfullversion %geos314fullversion
+%global	geosmajorversion %geos314majorversion
+%global	geosinstdir %geos314instdir
+
+%global	gdalfullversion %gdal313fullversion
+%global	gdalmajorversion %gdal313majorversion
+%global	gdalinstdir %gdal313instdir
+%global	projmajorversion %proj98majorversion
+%global	projfullversion %proj98fullversion
+%global	projinstdir %proj98instdir
+
+%{!?llvm:%global llvm 1}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
+%{!?runselftest:%global runselftest 0}
+%{!?utils:%global	utils 1}
+%{!?shp2pgsqlgui:%global	shp2pgsqlgui 1}
+%{!?raster:%global	raster 1}
+
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
+%{!?sfcgal:%global	sfcgal 1}
+%endif
+
+Summary:	Geographic Information Systems Extensions to PostgreSQL
+Name:		%{sname}%{postgiscurrmajorversion}_%{pgmajorversion}
+Version:	%{postgismajorversion}.0
+Release:	rc1_4PGDG%{?dist}
+License:	GPLv2+
+Source0:	https://download.osgeo.org/postgis/source/postgis-%{version}rc1.tar.gz
+Source2:	https://download.osgeo.org/postgis/docs/postgis-%{version}rc1-en.pdf
+Source4:	%{sname}%{postgiscurrmajorversion}-filter-requires-perl-Pg.sh
+
+URL:		https://www.postgis.net/
+
+BuildRequires:	autoconf automake libtool
+BuildRequires:	geos%{geosmajorversion}-devel >= %{geosfullversion}
+BuildRequires:	postgresql%{pgmajorversion}-devel
+BuildRequires:	libgeotiff%{libgeotiffmajorversion}-devel libxml2 libxslt
+BuildRequires:	pgdg-srpm-macros >= 1.0.54 gmp-devel pcre2-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server postgresql%{pgmajorversion}-contrib
+BuildRequires:	pgdg-srpm-macros >= 2.0.0
+%if 0%{?suse_version} >= 1500
+BuildRequires:	cunit-devel
+%else
+BuildRequires:	CUnit-devel
+%endif
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
+Requires:	pcre2
+%else
+Requires:	libpcre2-8-0
+%endif
+%if 0%{?suse_version} >= 1500
+Requires:	libgmp10
+%else
+Requires:	gmp
+%endif
+%if 0%{?suse_version}
+%if 0%{?suse_version} >= 1500
+BuildRequires:	libjson-c-devel
+BuildRequires:	proj%{projmajorversion}-devel >= %{projfullversion}
+%endif
+%else
+BuildRequires:	flex json-c-devel
+BuildRequires:	proj%{projmajorversion}-devel >= %{projfullversion}
+%endif
+BuildRequires:	libxml2-devel
+%if %{shp2pgsqlgui}
+BuildRequires:	gtk2-devel > 2.8.0
+%endif
+%if %{sfcgal}
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
+BuildRequires:	SFCGAL SFCGAL-devel >= 2.1.0
+%endif
+%if 0%{?suse_version} >= 1500
+BuildRequires:	SFCGAL SFCGAL-devel
+%endif
+%endif
+
+%if %{raster}
+BuildRequires:	gdal%{gdalmajorversion}-devel >= %{gdalfullversion}
+Requires:	gdal%{gdalmajorversion}-libs >= %{gdalfullversion}
+%endif
+
+%if 0%{?suse_version} >= 1500
+Requires:	libprotobuf-c1
+BuildRequires:	libprotobuf-c-devel
+%else
+# Fedora/RHEL:
+%if 0%{?fedora} >= 45
+Requires:	protobuf3-c >= 1.1.0
+BuildRequires:	protobuf3-c-devel >= 1.1.0
+%else
+Requires:	protobuf-c >= 1.1.0
+BuildRequires:	protobuf-c-devel >= 1.1.0
+%endif
+%endif
+
+Requires:	postgresql%{pgmajorversion} geos%{geosmajorversion} >= %{geosfullversion}
+Requires:	postgresql%{pgmajorversion}-contrib proj%{projmajorversion} >= %{projfullversion}
+Requires:	libgeotiff%{libgeotiffmajorversion}
+Requires:	hdf5
+Requires:	gdal%{gdalmajorversion}-libs >= %{gdalfullversion}
+%if 0%{?suse_version} == 1500
+Requires:	libjson-c5
+Requires:	libxerces-c-3_2
+BuildRequires:	libxerces-c-devel
+%endif
+%if 0%{?suse_version} == 1600
+Requires:	libjson-c5
+Requires:	libxerces-c-3_3
+BuildRequires:	libxerces-c-devel
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
+Requires:	json-c xerces-c
+BuildRequires:	xerces-c-devel
+%endif
+Requires(post):	%{_sbindir}/update-alternatives
+
+Provides:	%{sname} = %{version}-%{release}
+Obsoletes:	%{sname}3_%{pgmajorversion} <= %{postgismajorversion}.0-1
+Provides:	%{sname}3_%{pgmajorversion} >= %{postgismajorversion}.0
+
+Suggests:	postgis_tiger_geocoder
+
+%description
+PostGIS adds support for geographic objects to the PostgreSQL object-relational
+database. In effect, PostGIS "spatially enables" the PostgreSQL server,
+allowing it to be used as a backend spatial database for geographic information
+systems (GIS), much like ESRI's SDE or Oracle's Spatial extension. PostGIS
+follows the OpenGIS "Simple Features Specification for SQL" and has been
+certified as compliant with the "Types and Functions" profile.
+
+%package client
+Summary:	Client tools and their libraries of PostGIS
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+Provides:	%{sname}-client = %{version}-%{release}
+Obsoletes:	%{sname}2_%{pgmajorversion}-client <= %{postgismajorversion}.2-1
+Provides:	%{sname}2_%{pgmajorversion}-client >= %{postgismajorversion}.0
+
+%description client
+The %{name}-client package contains the client tools and their libraries
+of PostGIS.
+
+%package devel
+Summary:	Development headers and libraries for PostGIS
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+Provides:	%{sname}-devel = %{version}-%{release}
+Obsoletes:	%{sname}2_%{pgmajorversion}-devel <= %{postgismajorversion}.2-1
+Provides:	%{sname}2_%{pgmajorversion}-devel >= %{postgismajorversion}.0
+
+%description devel
+The %{name}-devel package contains the header files and libraries
+needed to compile C or C++ applications which will directly interact
+with PostGIS.
+
+%package docs
+Summary:	Extra documentation for PostGIS
+Obsoletes:	%{sname}2_%{pgmajorversion}-docs <= %{postgismajorversion}.2-1
+Provides:	%{sname}2_%{pgmajorversion}-docs >= %{postgismajorversion}.0
+
+%description docs
+The %{name}-docs package includes PDF documentation of PostGIS.
+
+%if %{shp2pgsqlgui}
+%package	gui
+Summary:	GUI for PostGIS
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+
+%description	gui
+The %{name}-gui package provides a gui for PostGIS.
+%endif
+
+%if %utils
+%package utils
+Summary:	The utils for PostGIS
+Requires:	%{name} = %{version}-%{release} perl-DBD-Pg
+Provides:	%{sname}-utils = %{version}-%{release}
+Obsoletes:	%{sname}2_%{pgmajorversion}-utils <= %{postgismajorversion}.2-1
+Provides:	%{sname}2_%{pgmajorversion}-utils >= %{postgismajorversion}.0
+
+%description utils
+The %{name}-utils package provides the utilities for PostGIS.
+%endif
+
+%global __perl_requires %{SOURCE4}
+
+%if %llvm
+%package llvmjit
+Summary:	Just-in-time compilation support for PostGIS 3.6
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+Requires:	llvm17
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+Requires:	llvm19
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 9 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+Requires:	llvm >= 19.0
+%endif
+
+%description llvmjit
+This package provides JIT support for PostGIS 3.6
+%endif
+
+%prep
+%setup -q -n %{sname}-%{version}rc1
+# Copy .pdf file to top directory before installing.
+%{__cp} -p %{SOURCE2} %{sname}-%{version}.pdf
+
+%build
+LDFLAGS="-Wl,-rpath,%{geosinstdir}/lib64 ${LDFLAGS}" ; export LDFLAGS
+LDFLAGS="-Wl,-rpath,%{projinstdir}/lib64 ${LDFLAGS}" ; export LDFLAGS
+SHLIB_LINK="$SHLIB_LINK -Wl,-rpath,%{geosinstdir}/lib64" ; export SHLIB_LINK
+SFCGAL_LDFLAGS="$SFCGAL_LDFLAGS -L/usr/lib64"; export SFCGAL_LDFLAGS
+
+LDFLAGS="$LDFLAGS -L%{geosinstdir}/lib64 -lgeos_c -L%{projinstdir}/lib64 -L%{gdalinstdir}/lib -L%{libgeotiffinstdir}/lib -ltiff -L/usr/lib64"; export LDFLAGS
+CFLAGS="$CFLAGS -I%{gdalinstdir}/include"; export CFLAGS
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:%{projinstdir}/lib64/pkgconfig
+# SLES 15.X does not ship gmp.pc, so apply a workaround here:
+%if 0%{?suse_version} < 1600
+export GMP_CFLAGS="-I/usr/include"
+export GMP_LIBS="-lgmp"
+%endif
+
+autoconf
+
+%configure --with-pgconfig=%{pginstdir}/bin/pg_config \
+	--bindir=%{pginstdir}/bin/ \
+	--datadir=%{pginstdir}/share/ \
+	--mandir=%{_mandir}/%{name} \
+	--enable-lto \
+	--with-projdir=%{projinstdir} \
+%if !%raster
+	--without-raster \
+%endif
+%if %{sfcgal}
+	--with-sfcgal=%{_bindir}/sfcgal-config \
+%endif
+%if %{shp2pgsqlgui}
+	--with-gui \
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
+	--with-protobuf \
+%else
+	--without-protobuf \
+%endif
+	--enable-rpath --libdir=%{pginstdir}/lib \
+	--with-geosconfig=%{geosinstdir}/bin/geos-config \
+	--with-gdalconfig=%{gdalinstdir}/bin/gdal-config
+
+SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so" %{with_llvm_arg}
+
+%{__make} %{?_smp_mflags} -C extensions %{with_llvm_arg}
+
+%if %utils
+ SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils %{with_llvm_arg}
+%endif
+
+%install
+%{__rm} -rf %{buildroot}
+SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
+
+%if %utils
+%{__install} -d %{buildroot}%{_datadir}/%{name}
+%{__install} -m 644 utils/*.pl %{buildroot}%{_datadir}/%{name}
+%endif
+
+%check
+%if %runselftest
+%pgdg_check_init
+pgdg_check_start main
+# The unit tests of liblwgeom, the loader and the raster core. They need CUnit.
+%{__make} check-unit %{with_llvm_arg}
+# PostGIS runs its regression tests with a harness of its own, run_test.pl.
+# installcheck-base makes it load PostGIS with CREATE EXTENSION, from this
+# package's files, and then run the tests once more after upgrading the
+# extensions. Keep the harness' files in the build directory instead of the
+# shared /tmp/pgis_reg, and print the diffs of the failed tests.
+export PGIS_REG_TMPDIR=$PGDG_CHECK_DIR/pgis_reg
+%{__make} installcheck-base %{with_llvm_arg} || {
+	find $PGIS_REG_TMPDIR -name '*_diff' -printf '===== %p\n' -exec cat {} \;
+	exit 1
+}
+%endif
+
+# Create alternatives entries for common binaries
+%post client
+%{_sbindir}/update-alternatives --install %{_bindir}/pgsql2shp postgis-pgsql2shp %{pginstdir}/bin/pgsql2shp %{pgmajorversion}0
+%{_sbindir}/update-alternatives --install %{_bindir}/shp2pgsql postgis-shp2pgsql %{pginstdir}/bin/shp2pgsql %{pgmajorversion}0
+
+# Drop alternatives entries for common binaries and man files
+%postun client
+if [ "$1" -eq 0 ]
+  then
+	# Only remove these links if the package is completely removed from the system (vs.just being upgraded)
+	%{_sbindir}/update-alternatives --remove postgis-pgsql2shp	%{_bindir}/bin/pgsql2shp
+	%{_sbindir}/update-alternatives --remove postgis-shp2pgsql	%{_bindir}/bin/shp2pgsql
+fi
+
+%files
+%defattr(-,root,root)
+%doc COPYING CREDITS NEWS README.%{sname} doc/html loader/README.* doc/%{sname}.xml doc/ZMSgeoms.txt
+%license LICENSE.TXT
+%{pginstdir}/bin/postgis
+%{pginstdir}/bin/postgis_restore
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/postgis.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/postgis_comments.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/postgis_upgrade*.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/uninstall_postgis.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/legacy*.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/*topology*.sql
+%{pginstdir}/lib/%{sname}-%{postgissomajorversion}.so
+%{pginstdir}/share/extension/%{sname}-*.sql
+%if %{sfcgal}
+%{pginstdir}/lib/%{sname}_sfcgal-%{postgissomajorversion}.so
+%{pginstdir}/share/extension/%{sname}_sfcgal*.sql
+%{pginstdir}/share/extension/%{sname}_sfcgal.control
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/sfcgal.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/sfcgal_upgrade.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/uninstall_sfcgal.sql
+%endif
+%{pginstdir}/share/extension/%{sname}.control
+%{pginstdir}/lib/%{sname}_topology-%{postgissomajorversion}.so
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/sfcgal_comments.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/raster_comments.sql
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/spatial*.sql
+%{pginstdir}/share/extension/%{sname}_topology-*.sql
+%{pginstdir}/share/extension/%{sname}_topology.control
+%{pginstdir}/share/contrib/%{sname}-%{postgismajorversion}/uninstall_legacy.sql
+%if %{raster}
+%{pginstdir}/share/contrib/postgis-%{postgismajorversion}/rtpostgis.sql
+%{pginstdir}/share/contrib/postgis-%{postgismajorversion}/rtpostgis_legacy.sql
+%{pginstdir}/share/contrib/postgis-%{postgismajorversion}/rtpostgis_upgrade.sql
+%{pginstdir}/share/contrib/postgis-%{postgismajorversion}/uninstall_rtpostgis.sql
+%{pginstdir}/share/extension/postgis_raster*.sql
+%{pginstdir}/lib/postgis_raster-%{postgissomajorversion}.so
+%{pginstdir}/share/extension/%{sname}_raster.control
+%endif
+%{_mandir}/%{name}/man1/*
+
+%files client
+%defattr(644,root,root)
+%attr(755,root,root) %{pginstdir}/bin/pgsql2shp
+%if %{raster}
+%attr(755,root,root) %{pginstdir}/bin/raster2pgsql
+%endif
+%attr(755,root,root) %{pginstdir}/bin/shp2pgsql
+%attr(755,root,root) %{pginstdir}/bin/pgtopo_export
+%attr(755,root,root) %{pginstdir}/bin/pgtopo_import
+%{_mandir}/%{name}/man1/pgsql2shp*
+%{_mandir}/%{name}/man1/pgtopo_*
+%{_mandir}/%{name}/man1/shp2pgsql*
+
+%files devel
+%defattr(644,root,root)
+
+%files docs
+%defattr(-,root,root)
+%doc %{sname}-%{version}.pdf
+
+%if %shp2pgsqlgui
+%files gui
+%defattr(-,root,root)
+%{pginstdir}/bin/shp2pgsql-gui
+%{pginstdir}/share/applications/shp2pgsql-gui.desktop
+%{pginstdir}/share/icons/hicolor/*/apps/shp2pgsql-gui.png
+%endif
+
+%if %llvm
+%files llvmjit
+   %{pginstdir}/lib/bitcode/postgis-%{postgissomajorversion}*.bc
+   %{pginstdir}/lib/bitcode/postgis_topology-%{postgissomajorversion}/*.bc
+   %{pginstdir}/lib/bitcode/postgis_topology-%{postgissomajorversion}*.bc
+   %{pginstdir}/lib/bitcode/postgis-%{postgissomajorversion}/*.bc
+   %if %{raster}
+     %{pginstdir}/lib/bitcode/postgis_raster-%{postgissomajorversion}*.bc
+     %{pginstdir}/lib/bitcode/postgis_raster-%{postgissomajorversion}/*.bc
+   %endif
+   %if %{sfcgal}
+   %{pginstdir}/lib/bitcode/postgis_sfcgal-%{postgissomajorversion}.index.bc
+   %{pginstdir}/lib/bitcode/postgis_sfcgal-%{postgissomajorversion}/lwgeom_sfcgal.bc
+   %{pginstdir}/lib/bitcode/postgis_sfcgal-%{postgissomajorversion}/postgis_sfcgal_legacy.bc
+   %endif
+%endif
+
+%if %utils
+%files utils
+%defattr(-,root,root)
+%doc utils/README.md
+%attr(755,root,root) %{_datadir}/%{name}/*.pl
+%endif
+
+%changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.0rc1-4PGDG
+- Add %%check, running the unit tests and the regression tests with the
+  %%check helpers from pgdg-srpm-macros 2.0.0. It is disabled by default;
+  enable it with --define 'runselftest 1'.
+
+* Sat Sep 19 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.0rc1-3PGDG
+- Fedora 45: protobuf-c(-devel) is now protobuf3-c(-devel). Use the new names.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.0rc1-2PGDG
+- Add missing BR
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0rc1-1PGDG
+- Update to 3.7.0 rc1 per:
+  https://postgis.net/2026/08/PostGIS-3.7.0rc1/
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.0-beta2_3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Tue Aug 18 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0beta2-2PGDG
+- Build with GDAL 3.13 on all platforms except RHEL 8.
+- Previous package used beta1 sources, so rebuild to fix it.
+
+* Mon Aug 10 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0beta2-1PGDG
+- Update to 3.7.0 beta2 per:
+  https://postgis.net/2026/08/PostGIS-3.7.0beta2/
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0beta1-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Tue Jul 21 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0beta1-1PGDG
+- Update to 3.7.0 beta1 per:
+  https://postgis.net/2026/07/PostGIS-3.7.0beta1/
+
+* Mon Jul 6 2026 Devrim Gunduz <devrim@gunduz.org> - 3.7.0alpha1-1PGDG
+- Initial cut for PostGIS 3.7.0 alpha1 per:
+  https://postgis.net/2026/07/PostGIS-3.7.0alpha1/

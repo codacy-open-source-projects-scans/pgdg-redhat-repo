@@ -2,6 +2,18 @@
 %global sname ogr_fdw
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 %pgdg_set_gis_variables
 
@@ -10,21 +22,24 @@
 %global gdalmajorversion %gdal38majorversion
 %global gdalinstdir %gdal38instdir
 %else
-%global gdalfullversion %gdal312fullversion
-%global gdalmajorversion %gdal312majorversion
-%global gdalinstdir %gdal312instdir
+%global gdalfullversion %gdal313fullversion
+%global gdalmajorversion %gdal313majorversion
+%global gdalinstdir %gdal313instdir
 %endif
 
 Summary:	PostgreSQL foreign data wrapper for OGR
 Name:		%{sname}_%{pgmajorversion}
-Version:	1.1.7
-Release:	6PGDG%{?dist}
+Version:	1.1.9
+Release:	5PGDG%{?dist}
 License:	MIT
 Source0:	https://github.com/pramsey/pgsql-ogr-fdw/archive/v%{version}.tar.gz
 URL:		https://github.com/pramsey/pgsql-ogr-fdw
 BuildRequires:	postgresql%{pgmajorversion}-devel gdal%{gdalmajorversion}-devel
-BuildRequires:	pgdg-srpm-macros >= 1.0.53
+BuildRequires:	pgdg-srpm-macros >= 1.0.54
 Requires:	postgresql%{pgmajorversion}-server gdal%{gdalmajorversion}-libs
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %description
 This library contains a PostgreSQL extension, a Foreign Data Wrapper (FDW)
@@ -42,7 +57,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -55,7 +74,7 @@ This package provides JIT support for ogr_fdw
 %setup -q -n pgsql-ogr-fdw-%{version}
 
 %build
-PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags}
+PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
@@ -63,7 +82,7 @@ PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mfla
 %{__install} -d %{buildroot}%{pginstdir}/
 %{__install} -d %{buildroot}%{pginstdir}/bin/
 %{__install} -d %{buildroot}%{pginstdir}/share/extension
-PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} install DESTDIR=%{buildroot}
+PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
 
 # Install README file under PostgreSQL installation directory:
 %{__install} -m 755 README.md %{buildroot}%{pginstdir}/share/extension/README-%{sname}.md
@@ -71,6 +90,14 @@ PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mfla
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
+
+%check
+%if %runselftest
+# The tests connect to the server over TCP, on localhost and $PGPORT
+%pgdg_check_init
+pgdg_check_start main "listen_addresses = 'localhost'"
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %defattr(644,root,root,755)
@@ -87,6 +114,32 @@ PATH=%{pginstdir}/bin:%{gdalinstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mfla
 %endif
 
 %changelog
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.9-5PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.9-4PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Wed Aug 19 2026 Devrim Gündüz <devrim@gunduz.org> - 1.1.9-3PGDG
+- Rebuild against GDAL 3.13
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.9-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Thu Jul 9 2026 Devrim Gündüz <devrim@gunduz.org> 1.1.9-1PGDG
+- Update to 1.1.9 per changes described at:
+  https://github.com/pramsey/pgsql-ogr-fdw/releases/tag/v1.1.9
+
+* Tue Jun 16 2026 Devrim Gündüz <devrim@gunduz.org> 1.1.8-1PGDG
+- Update to 1.1.8 per changes described at:
+  https://github.com/pramsey/pgsql-ogr-fdw/releases/tag/v1.1.8
+
 * Mon Apr 27 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.7-6PGDG
 - Update GDAL dependency for SLES 15.
 

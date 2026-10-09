@@ -2,14 +2,27 @@
 
 %{!?llvm:%global llvm 1}
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
+
 Summary:	PostgreSQL tool for transferring data with URL syntax
 Name:		%{sname}_%{pgmajorversion}
-Version:	2.4.4
-Release:	3PGDG%{?dist}
+Version:	2.4.5
+Release:	2PGDG%{?dist}
 URL:		https://github.com/RekGRpth/%{sname}
 Source0:	https://api.pgxn.org/dist/%{sname}/%{version}/%{sname}-%{version}.zip
 License:	MIT
 BuildRequires:	postgresql%{pgmajorversion}-devel libcurl-devel libxml2-devel
+BuildRequires:	unzip
 Requires:	postgresql%{pgmajorversion}-server
 
 %description
@@ -30,7 +43,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -43,11 +60,11 @@ This package provides JIT support for pg_curl
 %setup -q -n %{sname}-%{version}
 
 %build
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags}
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} DESTDIR=%{buildroot} install
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg} DESTDIR=%{buildroot} install
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
@@ -64,6 +81,23 @@ PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} DESTDIR=%{build
     %{pginstdir}/lib/bitcode/%{sname}/*.bc
 %endif
 %changelog
+* Tue Sep 15 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.5-2PGDG
+- Add missing BR
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.5-1PGDG
+- Update to 2.4.5 per changes described at:
+  https://pgxn.org/dist/pg_curl/2.4.5/
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.4-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.4-4PGDG
+- Add Amazon Linux 2023 support.
+
 * Tue Oct 7 2025 Devrim Gündüz <devrim@gunduz.org> - 2.4.4-3PGDG
 - Add SLES 16 support
 

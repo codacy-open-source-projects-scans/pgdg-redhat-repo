@@ -1,19 +1,19 @@
 
 %if 0%{?fedora} || 0%{?rhel}
 %global macros_dir %{_rpmconfigdir}/macros.d
-BuildArch:	noarch
 %else
 %global macros_dir %{_sysconfdir}/rpm
 %endif
 
 Name:		pgdg-srpm-macros
-Version:	1.0.53
+Version:	2.0.0
 Release:	1PGDG%{?dist}
 Summary:	SRPM macros for building PostgreSQL PGDG Packages
 
 License:	PostgreSQL
 URL:		https://github.com/pgdg-packaging/%{name}
 Source0:	https://github.com/pgdg-packaging/%{name}/archive/refs/tags/%{version}.tar.gz
+BuildArch:	noarch
 
 %description
 A set of macros for building PostgreSQL PGDG packages. 3rd party packagers can
@@ -27,13 +27,30 @@ echo no build stage needed
 
 %install
 %{__install} -p -D -m 0644 macros.pgdg-postgresql %{buildroot}/%{macros_dir}/macros.pgdg-postgresql
+%{__install} -p -D -m 0644 pgdg-check-functions.sh %{buildroot}%{_rpmconfigdir}/pgdg-check-functions.sh
 
 %files
 %doc README.md
 %license LICENSE.txt
 %{macros_dir}/macros.pgdg-postgresql
+%{_rpmconfigdir}/pgdg-check-functions.sh
 
 %changelog
+* Mon Sep 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.0.0-1PGDG
+- Update to 2.0.0 per changes described at:
+  https://github.com/pgdg-packaging/pgdg-srpm-macros/releases/tag/2.0.0
+- Install pgdg-check-functions.sh, the shell functions behind the new
+  %%pgdg_check_init and %%pgdg_check_installcheck macros.
+
+* Wed Sep 23 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.56-1PGDG
+- Update to 1.0.56 per changes described at:
+  https://github.com/pgdg-packaging/pgdg-srpm-macros/releases/tag/1.0.56
+  https://github.com/pgdg-packaging/pgdg-srpm-macros/releases/tag/1.0.55
+
+* Tue Aug 18 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.54-1PGDG
+- Update to 1.0.54 per changes described at:
+  https://github.com/pgdg-packaging/pgdg-srpm-macros/releases/tag/1.0.54
+
 * Tue Mar 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.53-1PGDG
 - Update to 1.0.53 per changes described at:
   https://github.com/pgdg-packaging/pgdg-srpm-macros/releases/tag/1.0.53

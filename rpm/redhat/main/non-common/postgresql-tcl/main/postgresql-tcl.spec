@@ -1,15 +1,11 @@
-%if 0%{?fedora} || 0%{?rhel}
-%global debug_package %{nil}
-%endif
-
 %global _build_id_links none
 
-%global pgtclmajorversion 3.1
+%global pgtclmajorversion 3.3
 %global pgtclprefix /usr/pgtcl%{pgtclmajorversion}
 
 Name:		postgresql%{pgmajorversion}-tcl
 Version:	%{pgtclmajorversion}.1
-Release:	3PGDG%{?dist}
+Release:	1PGDG%{?dist}
 Summary:	A Tcl client library for PostgreSQL
 
 URL:		https://github.com/flightaware/Pgtcl
@@ -19,7 +15,7 @@ Source0:	https://github.com/flightaware/Pgtcl/archive/v%{version}.tar.gz
 
 Requires:	tcl(abi) >= 8.5
 
-BuildRequires:	postgresql%{pgmajorversion}-devel tcl-devel
+BuildRequires:	gcc postgresql%{pgmajorversion}-devel tcl-devel
 BuildRequires:	autoconf
 
 %{!?tcl_version: %global tcl_version %(echo 'puts $tcl_version' | tclsh)}
@@ -36,6 +32,8 @@ to a PostgreSQL server.
 autoconf
 
 %build
+%set_build_flags
+
 ./configure --prefix=%{pgtclprefix}-%{pgmajorversion} \
 	--libdir=%{pgtclprefix}-%{pgmajorversion}/lib \
 	--with-tcl=%{_libdir} --with-postgres-include=%{pginstdir}/include \
@@ -63,6 +61,27 @@ autoconf
 %{pgtclprefix}-%{pgmajorversion}/share/man/mann/*
 
 %changelog
+* Mon Sep 14 2026 Devrim Gunduz <devrim@gunduz.org> - 3.3.1-1PGDG
+- Update to 3.3.1 per changes described at:
+  https://github.com/flightaware/Pgtcl/releases/tag/v3.3.1
+
+* Wed Sep 9 2026 Devrim Gunduz <devrim@gunduz.org> - 3.3.0-1PGDG
+- Update to 3.3.0 per changes described at:
+  https://github.com/flightaware/Pgtcl/releases/tag/v3.3.0
+- Add explicit BuildRequires on gcc.
+- Call %set_build_flags in %build so CFLAGS (including -g) get exported
+  on distros whose redhat-rpm-config doesn't auto-inject build flags
+  (e.g. RHEL 8/9). Without it, Pgtcl's TEA-based configure compiles with
+  no debug flags at all there, producing no DWARF info, which makes
+  find-debuginfo emit an empty debugsourcefiles.list and rpmbuild fail
+  with "Empty %%files file ... debugsourcefiles.list" when building the
+  -debugsource package. Per mock testing.
+
+* Wed Aug 19 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.1-1PGDG
+- Update to 3.2.1 per changes described at:
+  https://github.com/flightaware/Pgtcl/releases/tag/v3.2.1
+  https://github.com/flightaware/Pgtcl/releases/tag/v3.2.0
+
 * Wed Oct 15 2025 Devrim Gunduz <devrim@gunduz.org> - 3.1.1-3PGDG
 - Oops, really update to 3.1.1
 

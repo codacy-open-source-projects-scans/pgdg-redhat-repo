@@ -1,0 +1,129 @@
+%global modname urllib3
+
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __python3 %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __python3 %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
+%if 0%{?fedora} && 0%{?fedora} == 43
+%global __python3 %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
+%if 0%{?rhel} && 0%{?rhel} <= 10
+%global	__python3 %{_bindir}/python3.12
+%global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
+%endif
+%if 0%{?suse_version} >= 1500
+%global	__python3 %{_bindir}/python3.11
+%global	python3_pkgversion 311
+%endif
+
+%{expand: %%global pybasever %(echo `%{__python3} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
+%global python3_sitearch %(%{__python3} -Esc "import sysconfig; print(sysconfig.get_path('platlib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
+
+Name:		python%{python3_pkgversion}-%{modname}
+Version:	2.7.0
+Release:	3PGDG%{?dist}
+Summary:	HTTP library with thread-safe connection pooling, file post, and more
+
+License:	MIT
+URL:		https://github.com/%{modname}/%{modname}
+Source0:	%{url}/archive/%{version}/%{modname}-%{version}.tar.gz
+Patch0:		%{modname}-pyproject.toml.patch
+
+BuildRequires:	gcc sed python%{python3_pkgversion}-devel python%{python3_pkgversion}-pip
+BuildRequires:	ca-certificates python%{python3_pkgversion}-hatchling
+%if 0%{?suse_version} >= 1500
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+%endif
+Requires:	ca-certificates
+
+BuildArch:      noarch
+
+Provides:	python%{python3_pkgversion}dist(%{modname})
+
+%description
+urllib3 is a powerful, user-friendly HTTP client for Python. urllib3 brings
+many critical features that are missing from the Python standard libraries:
+
+  • Thread safety.
+  • Connection pooling.
+  • Client-side SSL/TLS verification.
+  • File uploads with multipart encoding.
+  • Helpers for retrying requests and dealing with HTTP redirects.
+  • Support for gzip, deflate, brotli, and zstd encoding.
+  • Proxy support for HTTP and SOCKS.
+  • 100% test coverage.}
+
+%prep
+%autosetup -n %{modname}-%{version}
+
+# Upstream computes the version dynamically via hatch-vcs from git metadata,
+# which isn't available from this GitHub source archive tarball. Patch0 makes
+# hatchling read the version from src/urllib3/_version.py instead; populate
+# that file here.
+echo '__version__ = "%{version}"' > src/urllib3/_version.py
+# hatchling leaves the files in .gitignore out of the wheel, and
+# src/urllib3/_version.py is there:
+sed -i '\|^src/urllib3/_version.py$|d' .gitignore
+if grep -q '_version.py' .gitignore; then exit 1; fi
+
+# Make sure that the RECENT_DATE value doesn't get too far behind what the current date is.
+# RECENT_DATE must not be older that 2 years from the build time, or else test_recent_date
+# (from test/test_connection.py) would fail. However, it shouldn't be to close to the build time either,
+# since a user's system time could be set to a little in the past from what build time is (because of timezones,
+# corner cases, etc). As stated in the comment in src/urllib3/connection.py:
+#   When updating RECENT_DATE, move it to within two years of the current date,
+#   and not less than 6 months ago.
+#   Example: if Today is 2018-01-01, then RECENT_DATE should be any date on or
+#   after 2016-01-01 (today - 2 years) AND before 2017-07-01 (today - 6 months)
+# There is also a test_ssl_wrong_system_time test (from test/with_dummyserver/test_https.py) that tests if
+# user's system time isn't set as too far in the past, because it could lead to SSL verification errors.
+# That is why we need RECENT_DATE to be set at most 2 years ago (or else test_ssl_wrong_system_time would
+# result in false positive), but before at least 6 month ago (so this test could tolerate user's system time being
+# set to some time in the past, but not to far away from the present).
+# Next few lines update RECENT_DATE dynamically.
+recent_date=$(date --date "7 month ago" +"%Y, %_m, %_d")
+sed -i "s/^RECENT_DATE = datetime.date(.*)/RECENT_DATE = datetime.date($recent_date)/" src/urllib3/connection.py
+
+
+%build
+# The installed trove-classifiers package may lag behind the classifiers
+# listed in this release's pyproject.toml (e.g. the PEP 703 free-threading
+# classifiers), which would otherwise make hatchling fail metadata
+# validation with "Unknown classifier in field `project.classifiers`".
+export HATCH_METADATA_CLASSIFIERS_NO_VERIFY=1
+%pyproject_wheel
+
+%install
+%pyproject_install
+
+%files
+%{python3_sitelib}/%{modname}-%{version}.dist-info/
+%{python3_sitelib}/%{modname}/*
+
+%changelog
+* Wed Oct 07 2026 Devrim Gunduz <devrim@gunduz.org> - 2.7.0-3PGDG
+- Package src/urllib3/_version.py: it is in .gitignore, so hatchling left it
+  out of the wheel, and "import urllib3" failed. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/249
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.7.0-2PGDG
+- Migrate %%python3_sitearch off the removed distutils.sysconfig module
+  to sysconfig.get_path()
+- Add missing BR (python3-pip), needed by %%pyproject_wheel
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Thu Sep 3 2026 Devrim Gunduz <devrim@gunduz.org> - 2.7.0-1PGDG
+- Inıtial packaging for the PostgreSQL RPM repository to support Patroni
+  on Amazon Linux 2023

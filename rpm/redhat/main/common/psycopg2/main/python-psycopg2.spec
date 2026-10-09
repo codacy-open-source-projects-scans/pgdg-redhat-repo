@@ -3,19 +3,26 @@
 
 %global ppg2majver 2
 %if 0%{?rhel} == 8
-# DO NOT BUMP UP THESE VALUES FOR RHEL 8 #
+# DO NOT BUMP UP THESE VALUES FOR RHEL 8
 %global ppg2midver 9
 %global ppg2minver 6
-%else
+%endif
+%if 0%{?rhel} == 9 || 0%{?amzn} == 2023 || 0%{?suse_version} <= 1599
+# DO NOT BUMP UP THESE VALUES FOR RHEL 9, AL 2023 and SLES 15.
 %global ppg2midver 9
 %global ppg2minver 12
 %endif
+%if 0%{?rhel} >= 10 || 0%{?fedora} >= 43 || 0%{?suse_version} >= 1600
+%global ppg2midver 9
+%global ppg2minver 13
+%endif
+
 %{!?with_docs:%global with_docs 0}
 
 %global __ospython %{_bindir}/python3
 %global python3_runtimes python3
 
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 10 || 0%{?suse_version} == 1600
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 10 || 0%{?suse_version} == 1600
 %{expand: %%global py3ver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
 %else
 %{expand: %%global py3ver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:3])"`)}
@@ -24,14 +31,15 @@
 Summary:	A PostgreSQL database adapter for Python 3
 Name:		python3-%{sname}
 Version:	%{ppg2majver}.%{ppg2midver}.%{ppg2minver}
-Release:	42PGDG%{?dist}
+Release:	44PGDG%{?dist}
 # The exceptions allow linking to OpenSSL and PostgreSQL's libpq
 License:	LGPLv3+ with exceptions
 Url:		https://www.psycopg.org
 Source0:	https://github.com/psycopg/psycopg2/archive/refs/tags/%{ppg2majver}.%{ppg2midver}.%{ppg2minver}.tar.gz
 
+BuildRequires:	gcc
 BuildRequires:	postgresql%{pgmajorversion}-devel
-BuildRequires:	python3-devel
+BuildRequires:	python3-devel python3-setuptools
 
 Requires:	libpq5 >= 10.0
 
@@ -95,6 +103,12 @@ done
 # This test is skipped on 3.7 and has a syntax error so brp-python-bytecompile would choke on it
 %{__rm} -f %{buildroot}%{python3_sitearch}/%{sname}/tests/test_async_keyword.py
 
+# These test modules aren't meant to be run directly (they're pytest
+# modules, not scripts), but ship an ambiguous "#!/usr/bin/env python"
+# shebang that trips brp-mangle-shebangs; strip it instead of packaging
+# a bogus interpreter tag.
+find %{buildroot}%{python3_sitearch}/%{sname}/tests -name '*.py' | xargs sed -i '1{/^#!\/usr\/bin\/env python$/d}'
+
 %files
 %defattr(-,root,root)
 %doc AUTHORS LICENSE NEWS README.rst
@@ -117,9 +131,27 @@ done
 %endif
 
 %changelog
+* Mon Sep 14 2026 Devrim Gündüz <devrim@gunduz.org> - 2.9.13-44PGDG
+- Strip the ambiguous "#!/usr/bin/env python" shebang from the packaged
+  tests/*.py files in %%install, so brp-mangle-shebangs stops failing
+  the build on Fedora.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 2.9.13-43PGDG
+- Add missing BR
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 2.9.13-42PGDG
+- Update to 2.9.13 per changes descrihed at:
+  https://github.com/psycopg/psycopg2/releases/tag/2.9.13
+- Lock versions for SLES 15 and RHEL 9 as well as 2.9.13 now requires
+  Python 3.10+
+
+* Wed Sep 2 2026 Devrim Gündüz <devrim@gunduz.org> - 2.9.12-43PGDG
+- Rebuild, per https://github.com/pgdg-packaging/pgdg-rpms/issues/233
+
 * Wed Apr 22 2026 Devrim Gündüz <devrim@gunduz.org> - 2.9.12-42PGDG
 - Update to 2.9.12 per changes descrihed at:
   https://github.com/psycopg/psycopg2/releases/tag/2.9.12
+  https://github.com/psycopg/psycopg2/releases/tag/2.9.11
 
 * Mon Oct 13 2025 Devrim Gündüz <devrim@gunduz.org> - 2.9.11-42PGDG
 - Update to 2.9.11 per changes descrihed at:

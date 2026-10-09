@@ -39,7 +39,7 @@ fi
 
 # Validate required variables from global.sh
 : "${pgStableBuilds:?pgStableBuilds is not set in global.sh}"
-: "${GPG_PASSWORD:?GPG_PASSWORD is not set in global.sh}"
+: "${GPG_PASSWORD:?GPG_PASSWORD is not set in global-local.sh}"
 : "${awssrpmurl:?awssrpmurl is not set in global.sh}"
 : "${awsdebuginfourl:?awsdebuginfourl is not set in global.sh}"
 : "${CF_SRPM_DISTRO_ID:?CF_SRPM_DISTRO_ID is not set in global.sh}"
@@ -47,7 +47,14 @@ fi
 : "${osarch:?osarch is not set in global.sh}"
 : "${osdistro:?osdistro is not set in global.sh}"
 : "${os:?os is not set in global.sh}"
-: "${osminversion:?osminversion is not set in global.sh}"
+
+# osminversion is intentionally empty for Fedora/Amazon Linux (no minor
+# version), so it can't use the ":?" form above -- that treats an empty
+# string the same as unset and would reject a legitimate config.
+if [ -z "${osminversion+x}" ]; then
+    error "osminversion is not set in global.sh"
+    exit 1
+fi
 
 # Validate AWS CLI is available and configured
 if ! command -v aws &> /dev/null; then
@@ -73,24 +80,29 @@ log "Starting package sync process..."
 # Copy all packages in rpmcommon directory to each major version first:
 log "Copying packages from rpmcommon to version-specific directories..."
 
+copy_failed=0
 for packageSyncVersion in "${pgStableBuilds[@]}"
 do
     # Non-free repo does not have a "common" repo, so copy all packages in
     # rpmcommon directory to each supported major PostgreSQL version:
-
-    # Check if source directories exist
-    if [ -d ~/rpmcommon/RPMS/x86_64 ]; then
-        cp ~/rpmcommon/RPMS/x86_64/* ~/rpm"${packageSyncVersion}"/RPMS/x86_64/ 2>/dev/null || true
-    fi
-
-    if [ -d ~/rpmcommon/RPMS/noarch ]; then
-        cp ~/rpmcommon/RPMS/noarch/* ~/rpm"${packageSyncVersion}"/RPMS/noarch/ 2>/dev/null || true
-    fi
+    for rpmArch in x86_64 noarch; do
+        # Nothing to copy (no directory, or an empty one):
+        compgen -G ~/rpmcommon/RPMS/"${rpmArch}"/'*' > /dev/null || continue
+        if ! mkdir -p ~/rpm"${packageSyncVersion}"/RPMS/"${rpmArch}" || \
+           ! cp ~/rpmcommon/RPMS/"${rpmArch}"/* ~/rpm"${packageSyncVersion}"/RPMS/"${rpmArch}"/; then
+            error "Could not copy ~/rpmcommon/RPMS/${rpmArch}/* to ~/rpm${packageSyncVersion}/RPMS/${rpmArch}/"
+            copy_failed=1
+        fi
+    done
 done
 
-# All packages have been copied, so can be removed. No need to copy
-# again and again:
-rm -f ~/rpmcommon/RPMS/x86_64/* ~/rpmcommon/RPMS/noarch/* 2>/dev/null || true
+# All packages have been copied, so can be removed. No need to copy again and
+# again. Keep them if any copy failed, or they would be lost:
+if [ "$copy_failed" -ne 0 ]; then
+    error "Not removing the packages in ~/rpmcommon/RPMS, and not syncing anything. Fix the errors above and run this script again."
+    exit 1
+fi
+rm -f ~/rpmcommon/RPMS/x86_64/* ~/rpmcommon/RPMS/noarch/*
 
 # Figure out which major PostgreSQL version(s) will be used to sync:
 
@@ -109,6 +121,8 @@ fi
 
 # Start sync process:
 
+sync_failed=0
+
 for packageSyncVersion in "${pgStableBuilds[@]}"
 do
     log "=========================================="
@@ -124,6 +138,7 @@ do
     # Validate BASE_DIR exists
     if [ ! -d "$BASE_DIR" ]; then
         error "Base directory does not exist: $BASE_DIR"
+        sync_failed=1
         continue
     fi
 
@@ -283,6 +298,13 @@ do
 
     log "Successfully completed sync for PostgreSQL $packageSyncVersion"
 done
+
+if [ "$sync_failed" -ne 0 ]; then
+    error "=========================================="
+    error "Package sync completed with errors, see above."
+    error "=========================================="
+    exit 1
+fi
 
 log "=========================================="
 log "Package sync completed successfully!"

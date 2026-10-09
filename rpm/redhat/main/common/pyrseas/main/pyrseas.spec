@@ -8,11 +8,13 @@
 Summary:	Compare and synchronize PostgreSQL database schemas
 Name:		python3-%{sname}
 Version:	0.10.0
-Release:	2PGDG%{?dist}
+Release:	4PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/perseas/%{cname}/archive/refs/tags/v%{version}.tar.gz
 URL:		https://github.com/perseas/%{cname}/
 BuildArch:	noarch
+
+BuildRequires:	python3-devel python3-setuptools
 
 Requires:	python3-pgdbconn
 Obsoletes:	python2-%{sname} <= 0.9.0
@@ -38,10 +40,20 @@ Andromeda Project. This is Python 3 version.
 %{_bindir}/dbaugment
 %{_bindir}/dbtoyaml
 %{_bindir}/yamltodb
-%{python3_sitelib}/%{cname}-%{version}-py%{py3ver}*.egg-info/*
+%{python3_sitelib}/%{cname}-%{version}-py%{py3ver}*.egg-info/
 %{python3_sitelib}/%{sname}
 
 %changelog
+* Thu Sep 10 2026 - Devrim Gündüz <devrim@gunduz.org> 0.10.0-4PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 - Devrim Gündüz <devrim@gunduz.org> 0.10.0-3PGDG
+- Package the .egg-info directory itself instead of globbing only its
+  contents (egg-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .egg-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
 * Wed Feb 21 2024 - Devrim Gündüz <devrim@gunduz.org> 0.10.0-2-PGDG
 - Add PGDG branding
 

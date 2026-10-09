@@ -1,16 +1,20 @@
 %global modname psutil
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} >= 1500
 %global	__ospython %{_bindir}/python3.11
@@ -18,18 +22,18 @@
 %endif
 
 %{expand: %%global pybasever %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%{expand: %%global python3_sitearch %(echo `%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(2))"`)}
+%global python3_sitearch %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('platlib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 Name:		python%{python3_pkgversion}-%{modname}
-Version:	6.1.1
-Release:	43PGDG%{?dist}.1
+Version:	7.2.2
+Release:	2PGDG%{?dist}.1
 Summary:	A process and system utilities module for Python
 
 License:	BSD-3-Clause
 URL:		https://github.com/giampaolo/%{modname}
 Source:		%{url}/archive/release-%{version}/%{modname}-%{version}.tar.gz
 
-BuildRequires:	gcc sed python%{python3_pkgversion}-devel
+BuildRequires:	gcc sed python%{python3_pkgversion}-devel python%{python3_pkgversion}-setuptools
 
 Provides:	python%{python3_pkgversion}dist(psutil)
 
@@ -55,16 +59,50 @@ done
 
 %install
 %{__ospython} setup.py install --no-compile --root %{buildroot}
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitearch}/%{modname}
+%endif
 
 %files
 %doc CREDITS HISTORY.rst README.rst
 %exclude %{python3_sitearch}/%{modname}/tests
-%{python3_sitearch}/%{modname}-%{version}-py%{pybasever}.egg-info/*
+%{python3_sitearch}/%{modname}-%{version}-py%{pybasever}.egg-info/
 %{python3_sitearch}/%{modname}/*.py*
 %{python3_sitearch}/%{modname}/__pycache__/*.py*
 %{python3_sitearch}/%{modname}/*.so
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 7.2.2-2PGDG
+- Migrate %%python3_sitearch off the removed distutils.sysconfig module
+  to sysconfig.get_path()
+- Add missing BR (python3-setuptools), needed by setup.py's own build
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 7.2.2-1PGDG.1
+- Update to 7.2.2 per changes described at:
+  https://github.com/giampaolo/psutil/releases/tag/release-7.2.2
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 6.1.1-46PGDG.1
+- Package the .egg-info directory itself instead of globbing only its
+  contents (egg-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .egg-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 6.1.1-45PGDG.1
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated and
+  the build failed with a missing-file error.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 6.1.1-44PGDG.1
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Mon Sep 22 2025 Devrim Gunduz <devrim@gunduz.org> - 6.1.1-43PGDG.1
 - Add Fedora 43 support
 

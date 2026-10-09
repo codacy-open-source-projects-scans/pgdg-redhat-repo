@@ -1,29 +1,50 @@
-%global debug_package %{nil}
 %global _vpath_builddir .
 %global sname	dbt2
 
 %{!?llvm:%global llvm 1}
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 Summary:	Database Test 2 Differences from the TPC-C - Extensions
 Name:		%{sname}-pg%{pgmajorversion}-extensions
-Version:	0.61.7
+Version:	0.62.0
 Release:	5PGDG%{dist}
 License:	GPLv2+
 Source0:	https://github.com/osdldbt/%{sname}/archive/refs/tags/v%{version}.tar.gz
 URL:		https://github.com/osdldbt/%{sname}/
-Patch0:		%{sname}-cmakelists-rpm.patch
 Requires:	%{sname}-common
 
 BuildRequires:	gcc-c++
 BuildRequires:	cmake >= 3.2.0
 
-BuildRequires:	libpq5-devel openssl-devel curl-devel
+BuildRequires:	postgresql%{pgmajorversion}-devel curl-devel
+
+%if 0%{?suse_version} >= 1500
+Requires:	libopenssl3
+BuildRequires:	libopenssl-3-devel
+%endif
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
+Requires:	openssl-libs >= 1.1.1k
+BuildRequires:	openssl-devel
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44 && !0%{?amzn}
+BuildRequires:	openssl-devel-engine
+%endif
 
 %if 0%{?suse_version} >= 1500
 BuildRequires:	libexpat-devel
 Requires:	libexpat1
 %else
-BuildRequires:	expat-devel
+BuildRequires:	expat-devel libev-devel
 Requires:	expat
 %endif
 
@@ -47,7 +68,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -58,7 +83,6 @@ This package provides JIT support for dbt2-extensions
 
 %prep
 %setup -q -n %{sname}-%{version}
-%patch -P 0 -p0
 
 %build
 
@@ -72,7 +96,7 @@ popd
 
 pushd storedproc/pgsql/c
 export PATH=%{pginstdir}/bin:$PATH
-%{__make} DESTDIR=%{buildroot}
+%{__make} DESTDIR=%{buildroot} %{with_llvm_arg}
 popd
 
 %install
@@ -84,7 +108,7 @@ popd
 
 pushd storedproc/pgsql/c
 export PATH=%{pginstdir}/bin:$PATH
-%{__make} DESTDIR=%{buildroot} install
+%{__make} DESTDIR=%{buildroot} %{with_llvm_arg} install
 popd
 
 # Install extrension control file
@@ -93,6 +117,14 @@ popd
 %{__cp} storedproc/pgsql/c/%{sname}.control %{buildroot}/%{pginstdir}/share/extension
 %{__cp} storedproc/pgsql/c/%{sname}.so %{buildroot}/%{pginstdir}/lib
 %{__cp} storedproc/pgsql/c/%{sname}--0.45.0.sql %{buildroot}/%{pginstdir}/share/extension/%{sname}--%{version}.sql
+
+# Install the plain (non-extension) TPC-C stored-procedure SQL scripts,
+# referenced in %%files below but never actually installed
+%{__cp} storedproc/pgsql/pgsql/stock_level.sql %{buildroot}/%{pginstdir}/share/
+%{__cp} storedproc/pgsql/pgsql/delivery.sql %{buildroot}/%{pginstdir}/share/
+%{__cp} storedproc/pgsql/pgsql/new_order.sql %{buildroot}/%{pginstdir}/share/
+%{__cp} storedproc/pgsql/pgsql/order_status.sql %{buildroot}/%{pginstdir}/share/
+%{__cp} storedproc/pgsql/pgsql/payment.sql %{buildroot}/%{pginstdir}/share/
 
 # Remove files which are installed with the common package:
 %{__rm} -f %{buildroot}/%{_bindir}/*
@@ -124,6 +156,32 @@ popd
 %endif
 
 %changelog
+* Mon Sep 14 2026 Devrim Gunduz <devrim@gunduz.org> - 0.62.0-5PGDG
+- Actually install stock_level.sql, delivery.sql, new_order.sql,
+  order_status.sql and payment.sql in %%install  They're the plain
+  TPC-C stored-procedure SQL scripts from storedproc/pgsql/pgsql/.
+
+* Wed Sep 9 2026 Devrim Gunduz <devrim@gunduz.org> - 0.62.0-4PGDG
+- Re-enable debug* packages.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 0.62.0-3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+- Note: the cmake-based dbt2 driver-tool build/install is untouched by
+  this, since it's unrelated to the PGXS-based storedproc extension.
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 0.62.0-2PGDG
+- Fix macros for Amazon Linux 2023
+
+* Sat Aug 15 2026 Devrim Gunduz <devrim@gunduz.org> - 0.62.0-1PGDG
+- Update 0.62.0
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 0.61.7-6PGDG
+- Add Amazon Linux 2023 support.
+
 * Mon Apr 20 2026 Devrim Gunduz <devrim@gunduz.org> - 0.61.7-5PGDG
 - Fix builds against CMake 4
 

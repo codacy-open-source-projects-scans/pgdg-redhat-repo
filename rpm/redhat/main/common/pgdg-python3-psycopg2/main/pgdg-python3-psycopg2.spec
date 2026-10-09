@@ -1,16 +1,20 @@
 %global sname psycopg2
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} >= 1500
 %global	__ospython %{_bindir}/python3.11
@@ -18,18 +22,18 @@
 %endif
 
 %{expand: %%global pybasever %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%{expand: %%global pgdg_python3_sitearch %(echo `%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(2))"`)}
+%global pgdg_python3_sitearch %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('platlib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 Summary:	A PostgreSQL database adapter for Python %{python3_pkgversion}
 Name:		python%{python3_pkgversion}-%{sname}
-Version:	2.9.10
-Release:	1PGDG%{?dist}.1
+Version:	2.9.12
+Release:	2PGDG%{?dist}.1
 # The exceptions allow linking to OpenSSL and PostgreSQL's libpq
 License:	LGPLv3+ with exceptions
 Url:		https://www.psycopg.org
 Source0:	https://github.com/psycopg/psycopg2/archive/refs/tags/%{version}.tar.gz
 
-BuildRequires:	postgresql%{pgmajorversion}-devel
+BuildRequires:	gcc postgresql%{pgmajorversion}-devel
 BuildRequires:	python%{python3_pkgversion}-devel python%{python3_pkgversion}-setuptools
 
 Requires:	libpq5 >= 10.0
@@ -51,6 +55,12 @@ export PATH=%{pginstdir}/bin:$PATH
 %install
 export PATH=%{pginstdir}/bin:$PATH
 %{__ospython} setup.py install --no-compile --root %{buildroot}
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{pgdg_python3_sitearch}/%{sname}
+%endif
 
 
 %files
@@ -67,6 +77,28 @@ export PATH=%{pginstdir}/bin:$PATH
 
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.9.12-2PGDG
+- Migrate %%pgdg_python3_sitearch off the removed distutils.sysconfig
+  module to sysconfig.get_path()
+- Add missing BR (gcc), needed to compile the psycopg2 C extension
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 2.9.12-1PGDG.1
+- Update to 2.9.12 per changes described at:
+  https://github.com/psycopg/psycopg2/releases/tag/2.9.12
+  https://github.com/psycopg/psycopg2/releases/tag/2.9.11
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.9.10-3PGDG.1
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated and
+  the build failed with a missing-file error.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.9.10-2PGDG.1
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Mon Sep 22 2025 Devrim Gunduz <devrim@gunduz.org> - 2.9.10-1PGDG.1
 - Add Fedora 43 support
 

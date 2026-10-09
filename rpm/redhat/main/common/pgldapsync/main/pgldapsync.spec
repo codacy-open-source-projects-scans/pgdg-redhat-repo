@@ -1,20 +1,21 @@
 %global sname pgldapsync
 
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -25,7 +26,7 @@
 %global	python3_pkgversion 313
 %endif
 
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 10 || 0%{?suse_version} == 1600
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?suse_version} == 1600 || 0%{?amzn} == 2023
 %{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
 %else
 %{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:3])"`)}
@@ -34,13 +35,16 @@
 Summary:	A tool for syncing LDAP users to Postgres Roles
 Name:		%{sname}
 Version:	1.0.0
-Release:	8PGDG%{?dist}
+Release:	17PGDG%{?dist}
 License:	PostgreSQL
 URL:		https://github.com/enterprisedb/%{sname}
 Source0:	https://github.com/EnterpriseDB/%{sname}/archive/refs/tags/%{sname}-%{version}.tar.gz
 
 BuildArch:	noarch
-BuildRequires:	python3-devel >= 3.5 pgdg-srpm-macros >= 1.0.17
+BuildRequires:	python3-devel >= 3.5 python3-setuptools
+%if 0%{?amzn} == 2023
+BuildRequires:	python-rpm-macros
+%endif
 
 Requires:	libpq5 >= 10.0 python3-psycopg2
 Requires:	python3-ldap3
@@ -71,12 +75,19 @@ for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\
 %py3_compile %{buildroot}%{python3_sitelib}
 %endif
 
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%if 0%{?amzn} == 2023
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitelib}
+%endif
+
 %files
 %defattr(-,root,root)
 %doc README.md
 %{_sysconfdir}/%{sname}/*
 %{_bindir}/%{sname}
-%{python3_sitelib}/%{sname}-%{version}-py%{pyver}.egg-info/*
+%{python3_sitelib}/%{sname}-%{version}-py%{pyver}.egg-info/
 %{python3_sitelib}/%{sname}/*.py
 %{python3_sitelib}/%{sname}/config.ini.example
 %{python3_sitelib}/%{sname}/config_default.ini
@@ -87,6 +98,50 @@ for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\
 %{python3_sitelib}/%{sname}/pgutils/__pycache__/*.py*
 
 %changelog
+* Sun Sep 20 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-17PGDG
+- Add Fedora 45 support
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-16PGDG
+- Remove Fedora <= 42 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-15PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-14PGDG
+- Package the .egg-info directory itself instead of globbing only its
+  contents (egg-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .egg-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Thu Aug 27 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-13PGDG
+- Pass %{__ospython} instead of %{__python3} to %py_byte_compile on
+  Amazon Linux 2023. %{__python3} left the macro's %1 unexpanded
+  during %install, causing the bytecompile to silently no-op and the
+  __pycache__ files to still be missing at %files time.
+
+* Thu Aug 27 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-12PGDG
+- Explicitly run %py_byte_compile on Amazon Linux 2023, too, so the
+  __pycache__/*.pyc files listed in %files actually exist in the
+  buildroot when building against the python3.13 alt-stack. Unlike
+  SUSE's %py3_compile, %py_byte_compile also needs the interpreter
+  binary passed in.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-11PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.0-10PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.0-9PGDG
+- Now that we use Python 3.1X on all RHEL platforms, updated the
+  conditional to fix builds on RHEL 8 and 9.
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.0-8PGDG
 - Use Python 3.14 on Fedora 44. Many BRs and Requires are not ready
   for 3.15.

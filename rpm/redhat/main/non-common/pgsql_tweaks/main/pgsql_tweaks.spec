@@ -2,11 +2,13 @@
 
 Summary:	PostgreSQL functions which a DBA regularly needs
 Name:		%{sname}_%{pgmajorversion}
-Version:	1.0.2
-Release:	1PGDG%{?dist}
+Version:	1.0.5
+Release:	2PGDG%{?dist}
 License:	PostgreSQL
 URL:		https://codeberg.org/%{sname}/%{sname}/
 Source0:	https://api.pgxn.org/dist/pgsql_tweaks/%{version}/pgsql_tweaks-%{version}.zip
+BuildRequires:	make
+BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server
 BuildArch:	noarch
 
@@ -38,6 +40,15 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} DESTDIR=%{buildroot} %{?_smp_m
 %{pginstdir}/share/extension/%{sname}.control
 
 %changelog
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.5-2PGDG
+- Add missing BR
+
+* Thu Jul 2 2026 Devrim Gündüz <devrim@gunduz.org> 1.0.5-1PGDG
+- Update to 1.0.5
+
+* Tue Jun 9 2026 Devrim Gündüz <devrim@gunduz.org> 1.0.3-1PGDG
+- Update to 1.0.3
+
 * Wed Sep 24 2025 Devrim Gündüz <devrim@gunduz.org> 1.0.2-1PGDG
 - Update to 1.0.2
 

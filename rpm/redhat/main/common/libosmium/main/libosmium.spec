@@ -15,14 +15,14 @@
 %global gdalmajorversion %gdal38majorversion
 %global gdalinstdir %gdal38instdir
 %else
-%global gdalfullversion %gdal312fullversion
-%global gdalmajorversion %gdal312majorversion
-%global gdalinstdir %gdal312instdir
+%global gdalfullversion %gdal313fullversion
+%global gdalmajorversion %gdal313majorversion
+%global gdalinstdir %gdal313instdir
 %endif
 
 Name:		libosmium
-Version:	2.23.0
-Release:	44PGDG%{?dist}
+Version:	2.23.1
+Release:	1PGDG%{?dist}
 Summary:	Fast and flexible C++ library for working with OpenStreetMap data
 
 License:	BSL-1.0
@@ -113,6 +113,13 @@ cd libosmium
 %endif
 
 %changelog
+* Mon Aug 31 2026 Devrim Gündüz <devrim@gunduz.org> - 2.23.1-1PGDG
+- Update to 2.23.1 per changes described at:
+  https://github.com/osmcode/libosmium/releases/tag/v2.23.1
+
+* Wed Aug 19 2026 Devrim Gündüz <devrim@gunduz.org> - 2.23.0-45PGDG
+- Rebuild against GDAL 3.13 (except GDAL 3.8 on RHEL 8)
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.23.0-44PGDG
 - Update GDAL dependency for SLES 15.
 

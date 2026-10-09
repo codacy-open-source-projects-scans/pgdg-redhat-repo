@@ -1,10 +1,22 @@
 %global sname	passwordcheck_cracklib
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Name:		%{sname}_%{pgmajorversion}
-Version:	3.1.0
-Release:	5PGDG%{?dist}
+Version:	3.2.1
+Release:	1PGDG%{?dist}
 Summary:	PostgreSQL passwordcheck extension, built with cracklib.
 License:	BSD
 URL:		https://github.com/devrimgunduz/%{sname}/
@@ -17,6 +29,15 @@ Requires:	cracklib-dicts
 %endif
 
 BuildRequires:	cracklib-devel postgresql%{pgmajorversion}-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+# The tests need the cracklib dictionary
+%if 0%{?suse_version} >= 1500
+BuildRequires:	cracklib-dict-full
+%else
+BuildRequires:	cracklib-dicts
+%endif
+%endif
 
 %description
 This is the regular PostgreSQL passwordcheck extension, built with cracklib.
@@ -33,7 +54,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -46,11 +71,16 @@ This package provides JIT support for passwordcheck_cracklib
 %setup -q -n %{sname}-%{version}
 
 %build
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} DESTDIR=%{buildroot} install
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} DESTDIR=%{buildroot} install %{with_llvm_arg}
+
+%check
+%if %runselftest
+%pgdg_check_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %defattr(-,root,root,-)
@@ -63,6 +93,27 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} DESTDIR=%{buil
 %endif
 
 %changelog
+* Wed Sep 30 2026 Devrim Gündüz <devrim@gunduz.org> - 3.2.1-1PGDG
+- Update to 3.2.1 per changes described at:
+  https://github.com/devrimgunduz/passwordcheck_cracklib/releases/tag/3.2.1
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.0-3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.0-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Tue Jun 16 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.0-1PGDG
+- Update to 3.2.0 per changes described at:
+  https://github.com/devrimgunduz/passwordcheck_cracklib/releases/tag/3.2.0
+
 * Mon Oct 6 2025 Devrim Gunduz <devrim@gunduz.org> - 3.1.0-5PGDG
 - Add SLES 16 support
 

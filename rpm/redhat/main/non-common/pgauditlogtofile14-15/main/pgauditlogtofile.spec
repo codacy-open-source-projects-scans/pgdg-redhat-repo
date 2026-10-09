@@ -1,0 +1,292 @@
+%global sname	pgauditlogtofile
+
+%if %{pgmajorversion} == 15
+%global pgauditversion 17
+%endif
+%if %{pgmajorversion} == 14
+%global pgauditversion 16
+%endif
+
+%{!?llvm:%global llvm 1}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
+Summary:	PostgreSQL Audit Log To File Extension
+Name:		%{sname}_%{pgmajorversion}
+Version:	1.8.7
+Release:	1PGDG%{?dist}
+License:	PostgreSQL
+Source0:	https://github.com/fmbiete/%{sname}/archive/v%{version}.tar.gz
+URL:		https://github.com/fmbiete/%{sname}
+BuildRequires:	postgresql%{pgmajorversion}-devel postgresql%{pgmajorversion}
+BuildRequires:	krb5-devel zlib-devel
+%if 0%{?suse_version} >= 1500
+Requires:	libopenssl3
+BuildRequires:	libopenssl-3-devel
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
+Requires:	openssl-libs >= 1.1.1k
+BuildRequires:	openssl-devel
+%endif
+
+# lz4 dependency
+%if 0%{?suse_version} >= 1500
+BuildRequires:	liblz4-devel
+Requires:	liblz4-1
+%endif
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	lz4-devel
+Requires:	lz4-libs
+%endif
+
+# zstd dependency
+%if 0%{?suse_version} >= 1500
+BuildRequires:	libzstd-devel >= 1.4.0
+Requires:	libzstd1 >= 1.4.0
+%endif
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	libzstd-devel >= 1.4.0
+Requires:	libzstd >= 1.4.0
+%endif
+
+Requires:	postgresql%{pgmajorversion}-server pgaudit%{pgauditversion}_%{pgmajorversion}
+
+%description
+pgAudit Log to File is an addon to pgAudit than will redirect audit log lines
+to an independent file, instead of using PostgreSQL server logger.
+
+This will allow us to have an audit file that we can easily rotate without
+polluting server logs with those messages.
+
+Audit logs in heavily used systems can grow very fast. This extension allows
+to automatically rotate the files based in a number of minutes.
+
+%if %llvm
+%package llvmjit
+Summary:	Just-in-time compilation support for pgauditlogtofile
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+Requires:	llvm17
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+Requires:	llvm19
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+Requires:	llvm >= 19.0
+%endif
+
+%description llvmjit
+This package provides JIT support for pgauditlogtofile
+%endif
+
+%prep
+%setup -q -n %{sname}-%{version}
+
+%build
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
+
+%install
+%{__rm} -rf %{buildroot}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} DESTDIR=%{buildroot} install %{with_llvm_arg}
+# Install README and howto file under PostgreSQL installation directory:
+%{__install} -d %{buildroot}%{pginstdir}/doc/extension
+%{__install} -m 644 README.md %{buildroot}%{pginstdir}/doc/extension/README-%{sname}.md
+%{__rm} -f %{buildroot}%{pginstdir}/doc/extension/README.md
+
+%files
+%defattr(-,root,root,-)
+%doc %{pginstdir}/doc/extension/README-%{sname}.md
+%{pginstdir}/lib/%{sname}.so
+%{pginstdir}/share/extension/%{sname}--*.sql
+%{pginstdir}/share/extension/%{sname}.control
+
+%if %llvm
+%files llvmjit
+   %{pginstdir}/lib/bitcode/%{sname}*.bc
+   %{pginstdir}/lib/bitcode/%{sname}/*.bc
+%endif
+
+%changelog
+* Tue Sep 22 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.7-1PGDG
+- Update to 1.8.7 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.7
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.6
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.5-1PGDG
+- Update to 1.8.5 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.5
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.4-4PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.4-3PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.4-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Fri Apr 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.4-1PGDG
+- Update to 1.8.4 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.4
+
+* Mon Mar 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.3-1PGDG
+- Update to 1.8.3 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.3
+
+* Wed Mar 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.2-1PGDG
+- Update to 1.8.2 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.2
+
+* Sun Mar 22 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.1-1PGDG
+- Update to 1.8.1 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.1
+
+* Mon Mar 2 2026 Devrim Gunduz <devrim@gunduz.org> - 1.8.0-1PGDG
+- Update to 1.8.0 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.8.0
+
+* Wed Feb 18 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.7-2PGDG
+- Rebuild because of package signing issue
+
+* Tue Feb 17 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.7-1PGDG
+- Update to 1.7.7 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.7
+
+* Wed Nov 5 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.6-2PGDG
+- Rebuild against OpenSSL 3 on SLES 15
+
+* Sun Nov 2 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.6-1PGDG
+- Update to 1.7.6 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.6
+
+* Mon Oct 20 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.5-1PGDG
+- Update to 1.7.5 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.5
+
+* Mon Oct 13 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.4-1PGDG
+- Update to 1.7.4 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.4
+
+* Tue Oct 7 2025 Devrim Gündüz <devrim@gunduz.org> - 1.7.3-2PGDG
+- Add SLES 16 support
+
+* Sat Oct 4 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.3-1PGDG
+- Update to 1.7.3 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.3
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.2
+
+* Wed Oct 01 2025 Yogesh Sharma <yogesh.sharma@catprosystems.com> - 1.7.1-3PGDG
+- Bump release number (missed in previous commit)
+
+* Tue Sep 30 2025 Yogesh Sharma <yogesh.sharma@catprosystems.com>
+- Change => to >= in Requires and BuildRequires
+
+* Tue Jul 29 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-2PGDG
+- Rebuild because of RPM signing issue.
+
+* Mon Jul 28 2025 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-1PGDG
+- Update to 1.7.1 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.0
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.7.1
+
+* Tue Feb 25 2025 Devrim Gunduz <devrim@gunduz.org> - 1.6.4-3PGDG
+- Add missing BRs
+
+* Sat Jan 4 2025 Devrim Gunduz <devrim@gunduz.org> - 1.6.4-2PGDG
+- Update package description and LLVM dependencies.
+
+* Mon Dec 16 2024 Devrim Gunduz <devrim@gunduz.org> - 1.6.4-1PGDG
+- Update to 1.6.4 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.6.4
+
+* Mon Oct 28 2024 Devrim Gunduz <devrim@gunduz.org> - 1.6.3-1PGDG
+- Update to 1.6.3 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.6.3
+
+* Tue Sep 3 2024 Devrim Gunduz <devrim@gunduz.org> - 1.6.2-1PGDG
+- Update to 1.6.2 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.6.2
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.6.1
+
+* Mon Jul 29 2024 Devrim Gündüz <devrim@gunduz.org> - 1.6.0-3PGDG
+- Update LLVM dependencies
+- Remove RHEL 7 support
+
+* Tue Jul 9 2024 Devrim Gunduz <devrim@gunduz.org> - 1.6.0-2PGDG
+- Remove v11 support.
+
+* Wed Jun 26 2024 Devrim Gunduz <devrim@gunduz.org> - 1.6.0-1PGDG
+- Update to 1.6.0 per changes described at:
+  https://github.com/fmbiete/pgauditlogtofile/releases/tag/v1.6.0
+
+* Mon Oct 9 2023 Devrim Gunduz <devrim@gunduz.org> - 1.5.12-2PGDG
+- Make conditionals also work on RHEL 8. Per
+  https://redmine.postgresql.org/issues/7883
+
+* Mon Jul 31 2023 Devrim Gunduz <devrim@gunduz.org> - 1.5.12-1PGDG
+- Update to 1.5.12
+- Add PGDG branding
+- Update licence
+- Fix rpmlint warnings
+- Unify spec file for all versions
+
+* Sat Jun 03 2023 Devrim Gunduz <devrim@gunduz.org> - 1.5.10-1.1
+- Rebuild against LLVM 15 on SLES 15
+
+* Tue Dec 13 2022 Devrim Gündüz <devrim@gunduz.org> - 1.5.10-1
+- Update to 1.5.10
+
+* Mon Dec 05 2022 Devrim Gündüz <devrim@gunduz.org> - 1.5.6-3
+- Get rid of AT and switch to GCC on RHEL 7 - ppc64le
+
+* Mon Oct 3 2022 Devrim Gündüz <devrim@gunduz.org> 1.5.6-2
+- This package needs to require pgaudit17.
+
+* Thu Sep 29 2022 Devrim Gündüz <devrim@gunduz.org> 1.5.6-1
+- Update to 1.5.6
+
+* Fri Sep 16 2022 Devrim Gündüz <devrim@gunduz.org> 1.5.5-1
+- Update to 1.5.5
+
+* Wed May 11 2022 Devrim Gündüz <devrim@gunduz.org> 1.5.1-1
+- Update to 1.5.1
+
+* Mon Oct 11 2021 Devrim Gündüz <devrim@gunduz.org> 1.4-1
+- Update to 1.4
+
+* Mon Sep 20 2021 Devrim Gündüz <devrim@gunduz.org> 1.3-1
+- Update to 1.3
+
+* Sat Jun 5 2021 Devrim Gündüz <devrim@gunduz.org> 1.2-1
+- Update to 1.2
+- Remove pgxs patches, and export PATH instead.
+
+* Tue Nov 17 2020 Devrim Gündüz <devrim@gunduz.org> 1.1-1
+- Update to 1.1
+
+* Tue Oct 27 2020 Devrim Gündüz <devrim@gunduz.org> 1.0-2
+- Use underscore before PostgreSQL version number for consistency, per:
+  https://www.postgresql.org/message-id/CAD%2BGXYMfbMnq3c-eYBRULC3nZ-W69uQ1ww8_0RQtJzoZZzp6ug%40mail.gmail.com
+
+* Sat Jun 06 2020 Francisco Miguel Biete Banon <fbiete@gmail.com> - 1.0-1
+- Initial RPM packaging for PostgreSQL RPM Repository

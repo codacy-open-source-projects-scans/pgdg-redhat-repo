@@ -3,15 +3,33 @@
 Summary:	Tool for diagnosing PostgreSQL system catalog corruption
 Name:		%{sname}_%{pgmajorversion}
 Version:	1.6.0
-Release:	4PGDG%{?dist}
+Release:	7PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/EnterpriseDB/%{sname}/archive/%{version}.tar.gz
 URL:		https://github.com/EnterpriseDB/%{sname}
+BuildRequires:	gcc make
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+%endif
 BuildRequires:	postgresql%{pgmajorversion}-devel
+# The static libraries (libpgcommon, libpgport) are in the -static subpackage
+# as of PostgreSQL 19:
+%if %{pgmajorversion} >= 19
+BuildRequires:	postgresql%{pgmajorversion}-static
+%endif
 Requires:	postgresql%{pgmajorversion}-server
 # All supported distros have libselinux-devel package:
 BuildRequires:	libselinux-devel >= 2.0.93
-# SLES: SLES 15 does not have selinux-policy packageç
+# SLES: SLES 15 does not have selinux-policy package.
 # RHEL/Fedora has selinux-policy:
 %if 0%{?rhel} || 0%{?fedora}
 BuildRequires:	selinux-policy >= 3.9.13
@@ -40,7 +58,14 @@ BuildRequires:	krb5-devel readline-devel zlib-devel
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	numactl-devel
+Requires:	numactl-libs
+%else
+BuildRequires:	libnuma-devel
+Requires:	libnuma1
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -82,6 +107,19 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} install DESTDI
 %{pginstdir}/bin/%{sname}
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.0-7PGDG
+- Fix the clang/llvm BuildRequires: the plain "clang" added earlier does
+  not work on SLES. Use the versioned packages per distro, as the other
+  packages do.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.0-6PGDG
+- Add missing BR
+- Add postgresqlNN-static to BuildRequires for PostgreSQL 19+: libpgcommon
+  and libpgport static libraries are in that subpackage now.
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 1.6.0-5PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
 * Thu Nov 20 2025 Devrim Gündüz <devrim@gunduz.org> - 1.6.0-4PGDG
 - Modernise OpenSSL dependencies.
 

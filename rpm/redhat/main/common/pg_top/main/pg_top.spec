@@ -1,13 +1,15 @@
 %global _vpath_builddir .
 %global sname pg_top
+%undefine _package_note_file
 
 Summary:	'top' for PostgreSQL process
 Name:		%{sname}
-Version:	4.1.2
-Release:	43PGDG%{?dist}
+Version:	4.1.3
+Release:	44PGDG%{?dist}
 License:	BSD
 URL:		https://gitlab.com/%{sname}/%{sname}
 Source0:	https://gitlab.com/%{sname}/%{sname}/-/archive/v%{version}/%{sname}-v%{version}.tar.bz2
+BuildRequires:	gcc
 BuildRequires:	libpq5-devel ncurses-devel cmake
 BuildRequires:	libbsd-devel
 %if 0%{?suse_version} >= 1500
@@ -34,15 +36,30 @@ pg_top allows you to monitor PostgreSQL processes. It also allows you to:
 %prep
 %setup -q -n %{sname}-v%{version}
 
-mkdir build
+
+%build
+%{__install} -d build
 pushd build
-%cmake ..
+%if 0%{?suse_version}
+cmake .. \
+	-DCMAKE_C_FLAGS="%{optflags}" \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+%else
+%cmake .. \
+%endif
+	-DCMAKE_INSTALL_PREFIX=%{_prefix}
+
 %cmake_build
 popd
 
 %install
+%{__rm} -rf %{buildroot}
 pushd build
+%if 0%{?suse_version}
+%{__make} install DESTDIR=%{buildroot}
+%else
 %cmake_install
+%endif
 popd
 
 %files
@@ -53,6 +70,18 @@ popd
 %{_mandir}/man1/%{sname}.1.gz
 
 %changelog
+* Sun Oct 4 2026 Devrim Gündüz <devrim@gunduz.org> - 4.1.3-44PGDG
+- Undefine _package_note_file macro. This is needed for AL 2023.
+- Fix builds on SLES: run cmake in %%build, and pass %%{optflags} to it so
+  that debuginfo/debugsource packages are not empty.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 4.1.3-43PGDG
+- Add missing BR
+
+* Mon Jun 8 2026 Devrim Gündüz <devrim@gunduz.org> - 4.1.3-42PGDG
+- Update to 4.1.3 per changes described at:
+  https://gitlab.com/pg_top/pg_top/-/releases/v4.1.3
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 4.1.2-43PGDG
 - Fix builds against CMake 4, per
   https://github.com/pgdg-packaging/pgdg-rpms/issues/167

@@ -1,0 +1,18 @@
+--- pyproject.toml.old
++++ pyproject.toml
+@@ -8,6 +8,5 @@
+ description = "Backup and Recovery Manager for PostgreSQL"
+ readme = "README.rst"
+-license = "GPL-3.0-only"
+-license-files = ["LICENSE"]
++license = {text = "GPL-3.0-only"}
+ requires-python = ">=3.12"
+ authors = [
+@@ -35,4 +34,7 @@
+ ]
+ 
++[tool.setuptools]
++license-files = ["LICENSE"]
++
+ [project.urls]
+ Homepage = "https://www.pgbarman.org/"

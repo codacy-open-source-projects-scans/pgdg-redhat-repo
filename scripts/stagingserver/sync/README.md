@@ -2,9 +2,9 @@
 
 ## Overview
 
-This suite of Bash scripts automates the synchronisation of PostgreSQL Global Development Group (PGDG) RPM packages from upstream build hosts to a local mirror. It supports Red Hat Enterprise Linux (RHEL), Fedora, SUSE Linux Enterprise Server (SLES), and openSUSE Leap, and is designed to be run manually or via a cron job.
+This suite of Bash scripts automates the synchronisation of PostgreSQL Global Development Group (PGDG) RPM packages from upstream build hosts to a local mirror. It supports Red Hat Enterprise Linux (RHEL), Fedora, SUSE Linux Enterprise Server (SLES), openSUSE Leap, and Amazon Linux, and is designed to be run manually or via a cron job.
 
-The suite consists of four files:
+The suite consists of five files:
 
 | File | Purpose |
 |---|---|
@@ -12,6 +12,7 @@ The suite consists of four files:
 | `sync_pgdg_rpms.sh` | Main sync script — drives rsync for a given OS, version, and architecture |
 | `sync_pgdg_rpms_cron.sh` | Cron wrapper — iterates over all OS/version combinations and calls the main script |
 | `sync_pgdg_rpms_completion.sh` | Bash tab-completion — provides context-aware completions for the main script |
+| `sync_pgdg_rpms_reporpms.sh` | Republishes the latest `pgdg-redhat-repo`/`pgdg-fedora-repo` RPM and its `-latest` symlink after a sync |
 
 ---
 
@@ -20,9 +21,11 @@ The suite consists of four files:
 ```
 sync_pgdg_rpms_config.sh       ← Single source of truth for all settings
         │
-        ├── sync_pgdg_rpms.sh        ← Manual/targeted sync
+        ├── sync_pgdg_rpms.sh          ← Manual/targeted sync
         │
-        └── sync_pgdg_rpms_cron.sh   ← Full automated sync (cron)
+        ├── sync_pgdg_rpms_cron.sh     ← Full automated sync (cron)
+        │
+        └── sync_pgdg_rpms_reporpms.sh ← Republish latest repo RPM + symlink
 
 sync_pgdg_rpms_completion.sh   ← Bash completion (sourced in shell profile)
 ```
@@ -40,11 +43,11 @@ This file is the single source of truth for all settings shared across the suite
 | Variable | Value | Description |
 |---|---|---|
 | `PG_ALL_VERSIONS` | `(18 17 16 15 14)` | All supported stable PG versions |
-| `PG_TEST_VERSIONS` | `(18 17 16 15 14)` | Versions available in testing repos |
+| `PG_TEST_VERSIONS` | `(20 19 18 17 16 15 14)` | Versions available in testing repos |
 
 ### Supported Operating Systems
 
-`VALID_OS=("redhat" "fedora" "sles" "opensuse")`
+`VALID_OS=("redhat" "fedora" "sles" "opensuse" "amzn")`
 
 ### Architectures per OS
 
@@ -54,15 +57,29 @@ This file is the single source of truth for all settings shared across the suite
 | `fedora` | `x86_64` |
 | `sles` | `x86_64` |
 | `opensuse` | `x86_64` |
+| `amzn` | `x86_64`, `aarch64` |
+
+### Per-Version Architecture Overrides
+
+Not every OS version necessarily ships every architecture listed above — e.g. a brand-new RHEL release may ship `x86_64` packages before `aarch64`/`ppc64le` catch up. `VALID_ARCH_OVERRIDES` is an associative array keyed `"<os>:<ver>"` that restricts the architecture list for just that one version; any `os:ver` pair not listed there falls back to the full `VALID_ARCH_<os>` list unchanged:
+
+```bash
+declare -A VALID_ARCH_OVERRIDES=(
+	[redhat:10.0]="x86_64 aarch64"    # ppc64le not yet available for 10.0
+)
+```
+
+Both `sync_pgdg_rpms.sh` and `sync_pgdg_rpms_reporpms.sh` resolve the architecture list per OS/version pair via the `get_valid_arch_for` helper (also defined in the config file), so an override here is picked up automatically by both — no other changes required. A `--arch` that doesn't apply to a given version is skipped quietly (shown with `--debug`), except when both `--os` and `--ver` are given explicitly together with an explicit `--arch` in `sync_pgdg_rpms.sh`, where a mismatch is still a hard error since exactly one target was requested.
 
 ### Versions per OS
 
 | OS | Supported Versions |
 |---|---|
-| `redhat` | `10.1`, `10.0`, `9.7`, `9.6`, `8.10` |
-| `fedora` | `43`, `42` |
+| `redhat` | `10.2`, `10.1`, `10.0`, `9.8`, `9.7`, `9.6`, `8.10` |
+| `fedora` | `44`, `43` |
 | `sles` | `15.6`, `15.7`, `16.0` |
 | `opensuse` | `16.0` |
+| `amzn` | `2023` |
 
 ### Base Directories
 
@@ -72,16 +89,31 @@ This file is the single source of truth for all settings shared across the suite
 | `fedora` | `/srv/yum/yum` |
 | `sles` | `/srv/zypp/zypp` |
 | `opensuse` | `/srv/zypp/zypp` |
+| `amzn` | `/srv/yum/yum` |
 
 ### Feature Flags per OS
 
 These flags control which optional repo types are enabled by default when no `--sync` argument is passed.
 
-| Flag | redhat | fedora | sles | opensuse |
-|---|---|---|---|---|
-| `EXTRASREPOSENABLED` | 1 | 0 | 1 | 1 |
-| `SYNCTESTINGREPOS` | 1 | 1 | 0 | 0 |
-| `SYNCNONFREEREPOS` | 1 | 0 | 0 | 0 |
+| Flag | redhat | fedora | sles | opensuse | amzn |
+|---|---|---|---|---|---|
+| `EXTRASREPOSENABLED` | 1 | 0 | 1 | 1 | 1 |
+| `SYNCTESTINGREPOS` | 1 | 1 | 1 | 1 | 1 |
+| `SYNCNONFREEREPOS` | 1 | 0 | 0 | 0 | 0 |
+
+### Non-Free Availability
+
+`SYNCNONFREEREPOS_<os>` above only controls whether non-free is attempted *at all* by default for an OS. Even where it's enabled, the actual non-free repo only exists for a limited subset of versions and architectures, tracked separately via `VALID_NONFREE_VER_<os>` and `VALID_NONFREE_ARCH_<os>`:
+
+| OS | Non-Free Versions | Non-Free Architectures |
+|---|---|---|
+| `redhat` | `10.2`, `10.1`, `9.8`, `9.7`, `8.10` | `x86_64` |
+| `fedora` | *(none)* | *(none)* |
+| `sles` | *(none)* | *(none)* |
+| `opensuse` | *(none)* | *(none)* |
+| `amzn` | *(none)* | *(none)* |
+
+`sync_pgdg_rpms.sh` checks both lists for every OS/version/arch combination before attempting a non-free rsync; a combination not listed (e.g. RHEL `10.0`/`9.6`, or any `aarch64`/`ppc64le` target) is skipped quietly (visible with `--debug`) rather than attempted and failed.
 
 ### OS Naming
 
@@ -91,6 +123,7 @@ These flags control which optional repo types are enabled by default when no `--
 | `fedora` | `fedora` | `fedora` |
 | `sles` | `sles` | `suse` |
 | `opensuse` | `leap` | `opensuse` |
+| `amzn` | `amzn` | `amzn` |
 
 ---
 
@@ -99,19 +132,21 @@ These flags control which optional repo types are enabled by default when no `--
 ### Usage
 
 ```bash
-./sync_pgdg_rpms.sh --os <os> [--ver <version>] [--arch <arch>] [--sync <items...>] [--dry-run] [--debug]
+./sync_pgdg_rpms.sh [--os <os>] [--ver <version>] [--arch <arch>] [--sync <items...>] [--dry-run] [--debug]
 ```
 
 ### Options
 
 | Option | Required | Description |
 |---|---|---|
-| `--os` | Yes | Operating system: `redhat`, `fedora`, `sles`, or `opensuse` |
-| `--ver` | No | OS version (e.g. `9.7`, `15.6`, `43`). If omitted, all valid versions for the OS are synced |
-| `--arch` | No | Architecture: `aarch64`, `ppc64le`, or `x86_64`. If omitted, all supported architectures for the OS are synced |
+| `--os` | No | Operating system: `redhat`, `fedora`, `sles`, `opensuse`, or `amzn`. If omitted, all supported operating systems are synced |
+| `--ver` | No | OS version (e.g. `9.7`, `15.6`, `43`). If omitted, all valid versions for the OS(es) being processed are synced |
+| `--arch` | No | Architecture: `aarch64`, `ppc64le`, or `x86_64`. If omitted, all supported architectures for the OS(es) being processed are synced |
 | `--sync` | No | One or more items to sync: `common`, `extras`, `testing`, `non-free`, or a PG version number (e.g. `17`). Multiple values accepted. If omitted, all available repos are synced |
 | `--dry-run` | No | Print what would be synced without executing rsync |
 | `--debug` | No | Print detailed internal variable state before syncing |
+
+When `--os` is omitted, the script loops over every OS in `VALID_OS`. In that case a `--ver` or `--arch` value that doesn't apply to a given OS (e.g. `--ver 16.0` doesn't exist for `redhat`) simply skips that OS rather than erroring out — the skip is only visible with `--debug`. When `--os` is given explicitly, an invalid `--ver`/`--arch` for that OS is still treated as a hard error, as before.
 
 ### Sync Items
 
@@ -133,6 +168,7 @@ The script constructs the rsync source hostname dynamically:
 | `fedora` | `pgrpms-fedora<ver>-<arch>.postgresql.org` |
 | `sles` | `pgrpms-sles<ver>-<arch>.postgresql.org` |
 | `opensuse` | `pgrpms-opensuse<ver>-<arch>.postgresql.org` |
+| `amzn` | `pgrpms-amzn<ver>-<arch>.postgresql.org` |
 
 ### Local Destination Directory Structure
 
@@ -176,6 +212,9 @@ The script constructs the rsync source hostname dynamically:
 
 # Sync everything for all RHEL versions and all architectures
 ./sync_pgdg_rpms.sh --os redhat
+
+# Sync just the common repo across every supported OS and version
+./sync_pgdg_rpms.sh --sync common
 ```
 
 ### Error Handling
@@ -191,7 +230,7 @@ This script is intended to be called by cron to perform a full, unattended sync 
 ### Usage
 
 ```bash
-./sync_pgdg_rpms_cron.sh [--dry-run] [--debug] [--sync item1 item2 ...]
+./sync_pgdg_rpms_cron.sh [--dry-run] [--debug] [--jobs N] [--sync item1 item2 ...]
 ```
 
 ### Options
@@ -200,21 +239,76 @@ This script is intended to be called by cron to perform a full, unattended sync 
 |---|---|
 | `--dry-run` | Passed through to `sync_pgdg_rpms.sh` |
 | `--debug` | Passed through to `sync_pgdg_rpms.sh` |
-| `--sync` | Passed through to `sync_pgdg_rpms.sh` to limit what is synced |
+| `--jobs N` | Number of OS/version syncs to run in parallel. Defaults to `MAX_PARALLEL` in `sync_pgdg_rpms_config.sh`; `1` means sequential |
+| `--sync` | Passed through to `sync_pgdg_rpms.sh` to limit what is synced. The special keyword `pg` expands to every version in `PG_ALL_VERSIONS` |
+
+`pg` can be combined with any other item, e.g. `--sync pg common` syncs all PostgreSQL versions plus the common repo (equivalent to `--sync 18 17 16 15 14 common`, given the current `PG_ALL_VERSIONS`). It's expanded before being forwarded, so it works whether items are passed as separate words (`--sync pg common`) or as one quoted string (`--sync "pg common"`).
 
 ### Behaviour
 
 1. Sources `sync_pgdg_rpms_config.sh` to read all OS/version mappings.
 2. Builds an associative array (`OS_VERSIONS`) mapping each OS to its list of versions.
-3. Iterates over every `os → version` pair and invokes `sync_pgdg_rpms.sh --os <os> --ver <ver>`.
-4. If a particular `os/ver` combination fails, logs the error and continues with the next (using `|| continue`).
-5. Logs all actions with timestamps via a `log()` helper.
+3. Expands any `pg` keyword in `--sync` to the full `PG_ALL_VERSIONS` list.
+4. Iterates over every `os → version` pair and invokes `sync_pgdg_rpms.sh --os <os> --ver <ver>`, running up to `MAX_PARALLEL` (or `--jobs`) pairs at the same time. Each pair uses its own source hosts and destination directories, so they do not interfere. Architectures within a pair are still synced one by one.
+5. Each job's output goes to its own temporary log, which is printed as one block when the job finishes (so output from different jobs does not interleave).
+6. If an `os/ver` combination fails, the other jobs carry on, and the failures are listed at the end.
+7. Logs all actions with timestamps via a `log()` helper.
+8. Takes an exclusive `flock` on `CRON_LOCK_FILE` (default `/tmp/sync_pgdg_rpms_cron.lock`) before syncing. If a previous run is still going, it logs a warning and exits 0 without syncing. `--dry-run` skips the lock.
 
 ### Suggested Crontab Entry
 
 ```cron
 # Run full PGDG RPM sync nightly at 02:00
 0 2 * * * /path/to/sync_pgdg_rpms_cron.sh >> /var/log/pgdg_sync.log 2>&1
+```
+
+---
+
+## Repo RPM Republisher (`sync_pgdg_rpms_reporpms.sh`)
+
+After a sync, the `pgdg-redhat-repo`, `pgdg-fedora-repo`, and `pgdg-amazonlinux-repo` RPMs (the packages that install the PGDG yum repo definitions) live in the freshly-synced `common` trees. This script finds the newest one for each OS/version/arch and republishes it under a dedicated `reporpms` tree so it can be served from a stable, predictable path.
+
+### Usage
+
+```bash
+./sync_pgdg_rpms_reporpms.sh [--os <os>] [--ver <version>] [--arch <arch>] [--dry-run] [--debug]
+```
+
+### Options
+
+| Option | Required | Description |
+|---|---|---|
+| `--os` | No | Restrict to one OS: `redhat`, `fedora`, or `amzn` (default: all three) |
+| `--ver` | No | Restrict to one OS version (must be valid for `--os`), or to one RHEL major version (e.g. `9`) |
+| `--arch` | No | Restrict to one architecture (must be valid for `--os`) |
+| `--dry-run` | No | Show what would change without touching any files |
+| `--debug` | No | Show detailed debug output |
+
+Only `redhat`, `fedora`, and `amzn` are supported — `sles` and `opensuse` have no equivalent repo-RPM concept in this workflow.
+
+### Behaviour
+
+For every `os`/`ver`/`arch` combination:
+
+1. Looks in `<BASE_DIR_OS>/common/<os>/<osname>-<ver>-<arch>` for the highest-versioned `<reponame>-*.rpm` (sorted with `sort -V`).
+2. If it isn't already present in `<BASE_DIR_OS>/reporpms/EL-<ver>-<arch>` (redhat), `.../F-<ver>-<arch>` (fedora), or `.../AL-<ver>-<arch>` (amzn), copies it in.
+3. Re-points the `<reponame>-latest.noarch.rpm` symlink at the new RPM.
+4. Removes any other file or symlink in the destination matching `<reponame>-*` (older versioned RPMs, stray symlinks, etc.), so the destination only ever holds the current RPM plus the `-latest` symlink.
+5. Skips a combination cleanly (no error) if the source `common` directory doesn't exist yet; warns and flags an error if the destination `reporpms` directory is missing.
+
+For `redhat`, the OS major version directories get the same treatment after the minor versions: `reporpms/EL-<major>-<arch>` (e.g. `EL-9-x86_64`) is updated from `common/redhat/rhel-<major>-<arch>`, which is a symlink to the latest minor version's directory. The major versions are derived from `VALID_VER_redhat`, and the architectures are those of each major version's latest minor version. `--ver 9` restricts the run to the `EL-9-*` directories.
+
+For OSes with `SYNCNONFREEREPOS_<os>=1` (RHEL), the non-free repo RPM (`pgdg-redhat-nonfree-repo`) is republished the same way into `reporpms/non-free/EL-<major>-<arch>`, for the major versions and architectures in `VALID_NONFREE_VER_<os>` / `VALID_NONFREE_ARCH_<os>`. There is no common non-free repo, so it is taken from `non-free/<version>/redhat/rhel-<major>-<arch>` of the newest version in `PG_ALL_VERSIONS` that has that directory. `--ver` with a minor version skips non-free, as `reporpms/non-free` only has major version directories.
+
+Like the main sync script, failures are collected rather than aborting the run: it exits `1` with a warning if any update failed, `0` if everything is up to date.
+
+### Suggested Crontab Entry
+
+Run after the nightly sync so the repo RPMs reflect what was just synced:
+
+```cron
+# Republish repo RPMs shortly after the nightly sync completes
+30 2 * * * /path/to/sync_pgdg_rpms_reporpms.sh >> /var/log/pgdg_reporpms.log 2>&1
 ```
 
 ---
@@ -236,7 +330,7 @@ source /path/to/sync_pgdg_rpms_completion.sh
 
 | Context | Completions offered |
 |---|---|
-| After `--os` | `redhat`, `fedora`, `sles`, `opensuse` |
+| After `--os` | `redhat`, `fedora`, `sles`, `opensuse`, `amzn` |
 | After `--ver` | Valid versions for the selected `--os` (or all versions if `--os` not yet given) |
 | After `--arch` | Valid architectures for the selected `--os` (or all architectures) |
 | After `--sync` | `common`, `extras`, `testing`, `non-free`, and all PG versions from `PG_ALL_VERSIONS` |
@@ -249,14 +343,14 @@ The completion function attempts to load `sync_pgdg_rpms_config.sh` automaticall
 
 ## Deployment Checklist
 
-1. Place all four scripts in the same directory.
+1. Place all five scripts in the same directory.
 2. Ensure `sync_pgdg_rpms_config.sh` is readable by the user running the sync.
-3. Make `sync_pgdg_rpms.sh` and `sync_pgdg_rpms_cron.sh` executable: `chmod +x sync_pgdg_rpms.sh sync_pgdg_rpms_cron.sh`
+3. Make `sync_pgdg_rpms.sh`, `sync_pgdg_rpms_cron.sh`, and `sync_pgdg_rpms_reporpms.sh` executable: `chmod +x sync_pgdg_rpms.sh sync_pgdg_rpms_cron.sh sync_pgdg_rpms_reporpms.sh`
 4. Verify SSH connectivity from the sync host to each upstream build host (`pgrpms-*.postgresql.org`) without a passphrase prompt (use SSH keys and `ssh-agent` or an `authorized_keys` entry).
-5. Confirm the local base directories (`/srv/yum/yum`, `/srv/zypp/zypp`) exist and are writable.
+5. Confirm the local base directories (`/srv/yum/yum`, `/srv/zypp/zypp`) exist and are writable, including the `reporpms/EL-<ver>-<arch>`, `reporpms/F-<ver>-<arch>`, and `reporpms/AL-<ver>-<arch>` destination directories used by `sync_pgdg_rpms_reporpms.sh`.
 6. Test with `--dry-run` before running live.
 7. Source `sync_pgdg_rpms_completion.sh` in your shell profile for tab completion.
-8. Add `sync_pgdg_rpms_cron.sh` to crontab for automated nightly syncs.
+8. Add `sync_pgdg_rpms_cron.sh` to crontab for automated nightly syncs, and `sync_pgdg_rpms_reporpms.sh` shortly after it.
 
 ---
 
@@ -265,8 +359,8 @@ The completion function attempts to load `sync_pgdg_rpms_config.sh` automaticall
 All changes should be made exclusively in `sync_pgdg_rpms_config.sh`:
 
 - **New PG version** — add the version number to both `PG_ALL_VERSIONS` and `PG_TEST_VERSIONS`.
-- **New OS version** — add the version string to the relevant `VALID_VER_<os>` array.
-- **New OS** — add the OS name to `VALID_OS`, create `VALID_ARCH_<os>`, `VALID_VER_<os>`, `BASE_DIR_<os>`, `OSNAME_<os>`, `OSDISTRO_<os>`, and the three feature flag variables (`EXTRASREPOSENABLED_<os>`, `SYNCTESTINGREPOS_<os>`, `SYNCNONFREEREPOS_<os>`), then add a matching `case` block in `sync_pgdg_rpms.sh` (OS settings switch, `SOURCE_HOST`, and `NONFREE_SOURCE_HOST`), add the OS to `OS_VERSIONS` in `sync_pgdg_rpms_cron.sh`, and extend the fallback arrays and completion cases in `sync_pgdg_rpms_completion.sh`.
+- **New OS version** — add the version string to the relevant `VALID_VER_<os>` array. For `redhat`/`fedora`/`amzn`, also create the matching `reporpms/EL-<ver>-<arch>`, `reporpms/F-<ver>-<arch>`, or `reporpms/AL-<ver>-<arch>` destination directories, since `sync_pgdg_rpms_reporpms.sh` reads `VALID_VER_<os>` directly from the config and will warn (and flag an error) if the destination is missing. If the new version doesn't ship every architecture in `VALID_ARCH_<os>` yet, add a `VALID_ARCH_OVERRIDES["<os>:<ver>"]` entry restricting it to the architectures that actually exist (see "Per-Version Architecture Overrides" above) — otherwise both scripts will attempt (and fail or warn on) architectures that don't exist for that version. If the new version also has a non-free repo, add it to `VALID_NONFREE_VER_<os>` (see "Non-Free Availability" above) — it is *not* picked up automatically just by being in `VALID_VER_<os>`.
+- **New OS** — add the OS name to `VALID_OS`, create `VALID_ARCH_<os>`, `VALID_VER_<os>`, `BASE_DIR_<os>`, `OSNAME_<os>`, `OSDISTRO_<os>`, the three feature flag variables (`EXTRASREPOSENABLED_<os>`, `SYNCTESTINGREPOS_<os>`, `SYNCNONFREEREPOS_<os>`), and `VALID_NONFREE_VER_<os>`/`VALID_NONFREE_ARCH_<os>` (empty arrays if the OS has no non-free repo). Then add a matching `elif` branch in `sync_pgdg_rpms.sh` for `SOURCE_HOST` and `NONFREE_SOURCE_HOST`, add the OS to `OS_VERSIONS` in `sync_pgdg_rpms_cron.sh`, and extend the fallback arrays and completion cases in `sync_pgdg_rpms_completion.sh`. (`VALID_ARCH_<os>`/`VALID_VER_<os>` themselves are picked up automatically via nameref — no per-OS `case` block needed for those.)
 
 ---
 

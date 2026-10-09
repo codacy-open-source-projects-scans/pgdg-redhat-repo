@@ -6,16 +6,32 @@
 %global	pgbulkloadpackagever %{pgbulkloadmajver}_%{pgbulkloadmidver}_%{pgbulkloadminver}
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 
 Summary:	High speed data loading utility for PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
 Version:	%{pgbulkloadmajver}.%{pgbulkloadmidver}.%{pgbulkloadminver}
-Release:	1PGDG%{?dist}
+Release:	5PGDG%{?dist}
 URL:		https://github.com/ossc-db/%{sname}
 Source0:	https://github.com/ossc-db/%{sname}/archive/VERSION%{pgbulkloadpackagever}.tar.gz
 License:	BSD
-BuildRequires:	postgresql%{pgmajorversion}-devel pam-devel
+BuildRequires:	postgresql%{pgmajorversion}-devel pam-devel libselinux-devel
 BuildRequires:	libsepol-devel readline-devel krb5-devel zlib-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 # lz4 dependency
 %if 0%{?suse_version} >= 1500
 BuildRequires:	liblz4-devel
@@ -26,12 +42,20 @@ BuildRequires:	lz4-devel
 Requires:	lz4-libs
 %endif
 
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	numactl-devel
+Requires:	numactl-libs
+%else
+BuildRequires:	libnuma-devel
+Requires:	libnuma1
+%endif
+
 # OpenSSL dependency
 %if 0%{?suse_version} >= 1500
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -75,7 +99,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -88,14 +116,27 @@ This package provides JIT support for pg_bulkload
 %setup -q -n %{sname}-VERSION%{pgbulkloadpackagever}
 
 %build
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags}
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} DESTDIR=%{buildroot} install
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg} DESTDIR=%{buildroot} install
 
 # Strip .so files to produce -debug* packages properly on SLES.
 %{__strip} %{buildroot}%{pginstdir}/lib/*.so
+
+%check
+%if %runselftest
+%pgdg_check_init
+# The parallel writer connects to the server over TCP on recent PostgreSQL
+# versions, so listen on localhost, too.
+pgdg_check_start main "listen_addresses = 'localhost'"
+# load_function and load_parallel hang: with the parallel writer, the
+# backend waits forever for a lock held by its own writer process when the
+# load fails. Run the other tests. The tests are in bin/.
+pgdg_installcheck -C bin %{with_llvm_arg} \
+	REGRESS="init load_bin load_csv load_remote load_encoding load_check load_filter write_bin"
+%endif
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
@@ -124,6 +165,25 @@ PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} DESTDIR=%{build
 %endif
 
 %changelog
+* Sun Aug 30  2026 Devrim Gunduz <devrim@gunduz.org> - 3.1.23-5PGDG
+- Add missing BRs, per https://github.com/pgdg-packaging/pgdg-rpms/issues/237
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30  2026 Devrim Gunduz <devrim@gunduz.org> - 3.1.23-4PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 3.1.23-3PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.1.23-2PGDG
+- Add Amazon Linux 2023 support.
+
 * Wed Jan 14 2026 Devrim Gunduz <devrim@gunduz.org> - 3.1.23-1PGDG
 - Update to 3.1.23 per changes described at:
   https://github.com/ossc-db/pg_bulkload/releases/tag/VERSION3_1_23

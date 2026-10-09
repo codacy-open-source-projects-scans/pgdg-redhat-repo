@@ -1,14 +1,27 @@
-%global debug_package %{nil}
 %global sname pgpool-II
 
 Summary:	PostgreSQL extensions for pgpool-II
 Name:		%{sname}-pg%{pgmajorversion}-extensions
-Version:	4.7.1
+Version:	4.7.3
 Release:	1PGDG%{?dist}
 License:	BSD
 URL:		https://pgpool.net
-Source0:	https://www.pgpool.net/mediawiki/images/%{sname}-%{version}.tar.gz
+Source0:	https://www.pgpool.net/source/%{sname}-%{version}.tar.gz
 Requires:	postgresql%{pgmajorversion}-server %{sname}-pcp
+
+BuildRequires:	gcc
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+%endif
 
 BuildRequires:	postgresql%{pgmajorversion}-devel pam-devel
 BuildRequires:	libmemcached-devel
@@ -16,7 +29,7 @@ BuildRequires:	libmemcached-devel
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -97,6 +110,28 @@ export PATH=%{pginstdir}/bin/:$PATH
 %{pginstdir}/share/extension/pgpool_recovery.control
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.3-1PGDG
+- Update to 4.7.3 per changes described at:
+  https://www.pgpool.net/docs/latest/en/html/release-4-7-3.html
+  Fixes CVE-2026-92867, CVE-2026-92868, CVE-2026-92869, CVE-2026-92870,
+  CVE-2026-92871, CVE-2026-92872 and CVE-2026-92873.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-4PGDG
+- Add missing BR
+
+* Mon Sep 7 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-3PGDG
+- Re-enable debug* subpackages.
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Thu Jun 4 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-1PGDG
+- Update to 4.7.2 per changes described at:
+  https://www.pgpool.net/docs/latest/en/html/release-4-7-2.html
+
+* Wed May 13 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.1-2PGDG
+- Update download URL
+
 * Thu Feb 26 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.1-1PGDG
 - Update to 4.7.1 per changes described at:
   https://www.pgpool.net/docs/latest/en/html/release-4-7-1.html

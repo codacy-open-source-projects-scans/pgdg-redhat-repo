@@ -19,9 +19,9 @@
 %global	projfullversion %proj96fullversion
 %global	projinstdir %proj96instdir
 %else
-%global	gdalfullversion %gdal312fullversion
-%global	gdalmajorversion %gdal312majorversion
-%global	gdalinstdir %gdal312instdir
+%global	gdalfullversion %gdal313fullversion
+%global	gdalmajorversion %gdal313majorversion
+%global	gdalinstdir %gdal313instdir
 %global	projmajorversion %proj98majorversion
 %global	projfullversion %proj98fullversion
 %global	projinstdir %proj98instdir
@@ -33,6 +33,17 @@
 %global libspatialitemajorversion	50
 
 %{!?llvm:%global llvm 1}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 %{!?utils:%global	utils 1}
 %{!?shp2pgsqlgui:%global	shp2pgsqlgui 1}
@@ -60,19 +71,20 @@
 Summary:	Geographic Information Systems Extensions to PostgreSQL
 Name:		%{sname}%{postgiscurrmajorversion}_%{pgmajorversion}
 Version:	%{postgismajorversion}.10
-Release:	2PGDG%{?dist}
+Release:	5PGDG%{?dist}
 License:	GPLv2+
 Source0:	https://download.osgeo.org/postgis/source/postgis-%{version}.tar.gz
 Source2:	https://download.osgeo.org/postgis/docs/postgis-%{version}.pdf
 Source4:	%{sname}%{postgiscurrmajorversion}-filter-requires-perl-Pg.sh
 Patch0:		%{sname}%{postgiscurrmajorversion}-%{postgismajorversion}.0-gdalfpic.patch
+Patch1:		%{sname}%{postgiscurrmajorversion}-%{version}-gdal-minmax.patch
 
 URL:		https://www.postgis.net/
 
 BuildRequires:	postgresql%{pgmajorversion}-devel geos%{geosmajorversion}-devel >= %{geosfullversion}
 BuildRequires:	libgeotiff%{libgeotiffmajorversion}-devel libxml2 libxslt autoconf
-BuildRequires:	pgdg-srpm-macros >= 1.0.53 gmp-devel pcre2-devel
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+BuildRequires:	pgdg-srpm-macros >= 1.0.54 gmp-devel pcre2-devel
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	pcre2
 %else
 Requires:	libpcre2-8-0
@@ -94,7 +106,7 @@ BuildRequires:	libxml2-devel
 BuildRequires:	gtk2-devel > 2.8.0
 %endif
 %if %{sfcgal}
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
 BuildRequires:	SFCGAL SFCGAL-devel >= 2.0.0
 %endif
 %if 0%{?rhel} == 8 || 0%{?suse_version} >= 1500
@@ -133,7 +145,7 @@ Requires:	libjson-c5
 Requires:	libxerces-c-3_3
 BuildRequires:	libxerces-c-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	json-c xerces-c
 BuildRequires:	xerces-c-devel
 %endif
@@ -217,7 +229,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -232,6 +248,7 @@ This package provides JIT support for PostGIS 3.2
 # Copy .pdf file to top directory before installing.
 %{__cp} -p %{SOURCE2} .
 %patch -P 0 -p0
+%patch -P 1 -p0
 
 %build
 LDFLAGS="-Wl,-rpath,%{geosinstdir}/lib64 ${LDFLAGS}" ; export LDFLAGS
@@ -264,7 +281,7 @@ autoconf
 %if %{shp2pgsqlgui}
 	--with-gui \
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?suse_version} >= 1500
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?suse_version} >= 1500
 	--with-protobuf \
 %else
 	--without-protobuf \
@@ -273,17 +290,17 @@ autoconf
 	--with-geosconfig=%{geosinstdir}/bin/geos-config \
 	--with-gdalconfig=%{gdalinstdir}/bin/gdal-config
 
-SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so"
+SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so" %{with_llvm_arg}
 
-%{__make} %{?_smp_mflags} -C extensions
+%{__make} %{?_smp_mflags} -C extensions %{with_llvm_arg}
 
 %if %utils
- SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils
+ SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils %{with_llvm_arg}
 %endif
 
 %install
 %{__rm} -rf %{buildroot}
-SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot}
+SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
 
 %if %utils
 %{__install} -d %{buildroot}%{_datadir}/%{name}
@@ -398,6 +415,21 @@ fi
 %endif
 
 %changelog
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.10-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Tue Aug 18 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.10-4PGDG
+- Build with GDAL 3.13 on all platforms except RHEL 8.
+- Fix build failure with GDAL 3.13, which no longer defines the MIN/MAX
+  macros in cpl_port.h; use PostgreSQL's Min macro instead.
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.10-3PGDG
+- Add Amazon Linux 2023 support.
+
 * Mon Apr 27 2026 Devrim Gunduz <devrim@gunduz.org> - 3.2.10-2PGDG
 - Update GDAL dependency for SLES 15.
 

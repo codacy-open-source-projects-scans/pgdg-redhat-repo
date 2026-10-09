@@ -2,18 +2,50 @@
 
 %{!?llvm:%global llvm 1}
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 Summary:	PostgreSQL Foreign Data Wrapper (FDW) for the hdfs
 Name:		%{sname}_%{pgmajorversion}
 Version:	2.3.3
-Release:	3PGDG%{?dist}
+Release:	6PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/EnterpriseDB/%{sname}/archive/v%{version}.tar.gz
 URL:		https://github.com/EnterpriseDB/%{sname}
 BuildRequires:	postgresql%{pgmajorversion}-devel
-BuildRequires:	libxml2-devel java-devel javapackages-tools
+BuildRequires:	libxml2-devel javapackages-tools
+%if 0%{?rhel} == 8
+BuildRequires:	java-11-openjdk-devel
+Requires:	java-11-openjdk
+%else
+%if 0%{?rhel} == 9
+BuildRequires:	java-17-openjdk-devel
+Requires:	java-17-openjdk
+%else
+%if 0%{?rhel} == 10
+BuildRequires:	java-21-openjdk-devel
+Requires:	java-21-openjdk
+%else
+%if 0%{?amzn} == 2023
+BuildRequires:	java-25-amazon-corretto-devel
+Requires:	java-25-amazon-corretto
+%else
+BuildRequires:	java-devel
+Requires:	java
+%endif
+%endif
+%endif
+%endif
 
 Requires:	postgresql%{pgmajorversion}-server
-Requires:	java
 
 %description
 This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for
@@ -31,7 +63,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -64,7 +100,7 @@ pushd libhive
 USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
 popd
 
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
@@ -81,7 +117,7 @@ pushd libhive/jdbc
 	%{__cp} HiveJdbcClient-1.0.jar %{buildroot}%{pginstdir}/lib
 popd
 
-USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} install INSTALL_DIR=%{buildroot} DESTDIR=%{buildroot}
+USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg} install INSTALL_DIR=%{buildroot} DESTDIR=%{buildroot}
 
 # Install README file under PostgreSQL installation directory:
 %{__install} -d %{buildroot}%{pginstdir}/doc/extension
@@ -104,6 +140,24 @@ USE_PGXS=1 PATH=%{pginstdir}/bin/:$PATH %{__make} %{?_smp_mflags} install INSTAL
 %endif
 
 %changelog
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.3-6PGDG
+- Pin java-11/17/21-openjdk(-devel) on RHEL 8/9/10 respectively (and
+  java-25-amazon-corretto on Amazon Linux 2023), instead of the
+  unversioned java-devel/java, which resolves to the outdated default
+  JDK 8 on RHEL 8. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/110
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.3-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+- Note: the separate libhive sub-component build/install is untouched by
+  this, since it's a plain client library, not a PGXS-based PG extension.
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.3-4PGDG
+- Add Amazon Linux 2023 support.
+
 * Sun Oct 5 2025 Devrim Gunduz <devrim@gunduz.org> - 2.3.3-3PGDG
 - Add SLES 16 support
 

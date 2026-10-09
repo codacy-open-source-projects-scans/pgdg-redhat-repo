@@ -1,21 +1,53 @@
 %global _vpath_builddir .
 %global sname	h3-pg
 
+%{!?runselftest:%global runselftest 0}
+
+%{!?llvm:%global llvm 1}
+
 Summary:	Uber's H3 Hexagonal Hierarchical Geospatial Indexing System in PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
-Version:	4.2.3
-Release:	4PGDG%{dist}
+Version:	4.5.0
+Release:	3PGDG%{dist}
 License:	Apache
 URL:		https://github.com/postgis/%{sname}
 Source0:	https://github.com/postgis/%{sname}/archive/refs/tags/v%{version}.tar.gz
 Patch0:		%{sname}-useosh3.patch
-BuildRequires:	cmake >= 3.20 h3-devel >= 4.2.0-3
+BuildRequires:	cmake >= 3.20 h3-devel >= 4.5.0-2
 BuildRequires:	postgresql%{pgmajorversion}-devel
 
-Requires:	postgresql%{pgmajorversion} h3 >= 4.2.0-3
+Requires:	postgresql%{pgmajorversion} h3 >= 4.5.0-2
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %description
 This library provides PostgreSQL bindings for the H3 Core Library.
+
+%if %llvm
+%package llvmjit
+Summary:	Just-in-time compilation support for h3-pg
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+Requires:	llvm17
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+Requires:	llvm19
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+Requires:	llvm >= 19.0
+%endif
+
+%description llvmjit
+This package provides JIT support for h3-pg
+%endif
 
 %prep
 %setup -q -n %{sname}-%{version}
@@ -43,6 +75,23 @@ pushd build
 %cmake_install
 popd
 
+%check
+%if %runselftest
+%pgdg_check_init
+# h3-pg runs its tests with ctest, in a temporary instance of its own. Build
+# them against the copy of the PostgreSQL installation, which has this
+# package's files, so that they also work before PostgreSQL 18, which has no
+# extension_control_path. Like upstream's installcheck, skip the h3_postgis
+# tests, which need PostGIS.
+%if 0%{?fedora}
+CFLAGS="$CFLAGS -I%{_includedir}/h3"; export CFLAGS
+%endif
+cmake -S . -B build-check -DCMAKE_BUILD_TYPE=Release \
+	-DPostgreSQL_CONFIG=$PGDG_CHECK_BINDIR/pg_config
+cmake --build build-check %{?_smp_mflags}
+ctest --test-dir build-check --output-on-failure --exclude-regex '^h3_postgis_regress$'
+%endif
+
 %post	-p /sbin/ldconfig
 %postun	-p /sbin/ldconfig
 
@@ -56,7 +105,29 @@ popd
 %{pginstdir}/share/extension/h3.control
 %{pginstdir}/share/extension/h3_postgis.control
 
+%if %llvm
+%files llvmjit
+    %{pginstdir}/lib/bitcode/h3*.bc
+    %{pginstdir}/lib/bitcode/h3/src/*.bc
+    %{pginstdir}/lib/bitcode/h3/src/binding/*.bc
+    %{pginstdir}/lib/bitcode/h3_postgis/src/*.bc
+%endif
+
 %changelog
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 4.5.0-3PGDG
+- Add %%check, running the regression tests with ctest against the copy
+  of the PostgreSQL installation from the %%check helpers of
+  pgdg-srpm-macros 2.0.0. It is disabled by default; enable it with
+  --define 'runselftest 1'.
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 4.5.0-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Sun Jun 7 2026 Devrim Gündüz <devrim@gunduz.org> - 4.5.0-1PGDG
+- Update to 4.5.0 per changes described at:
+  https://github.com/postgis/h3-pg/releases/tag/v4.5.0
+- Add llvmjit subpackage
+
 * Thu Mar 19 2026 Devrim Gündüz <devrim@gunduz.org> - 4.2.3-4PGDG
 - Fix builds against CMake 4
 

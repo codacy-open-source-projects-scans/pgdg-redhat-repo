@@ -4,14 +4,14 @@
 
 Summary:	Routing functionality for PostGIS
 Name:		%{sname}_%{pgmajorversion}
-Version:	%{pgroutingmajorversion}.1
-Release:	3PGDG%{dist}
+Version:	%{pgroutingmajorversion}.2
+Release:	2PGDG%{dist}
 License:	GPLv2+
 Source0:	https://github.com/pgRouting/%{sname}/archive/v%{version}.tar.gz
 URL:		https://pgrouting.org/
 BuildRequires:	cmake >= 3.12 boost-devel >= 1.56
 BuildRequires:	gcc-c++ gmp-devel
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?suse_version} <= 1500
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?suse_version} <= 1500
 BuildRequires:	perl-version
 %endif
 BuildRequires:	postgresql%{pgmajorversion}-devel
@@ -37,7 +37,11 @@ value can come from multiple fields or tables.
 %build
 %{__install} -d build
 pushd build
+%if 0%{?suse_version}
+cmake .. \
+%else
 %cmake .. \
+%endif
 	-DCMAKE_INSTALL_PREFIX=%{_prefix} \
 	-DPOSTGRESQL_BIN=%{pginstdir}/bin \
 	-DCMAKE_BUILD_TYPE=Release \
@@ -50,7 +54,11 @@ popd
 %install
 %{__rm} -rf %{buildroot}
 pushd build
+%if 0%{?suse_version}
+%{__make} install DESTDIR=%{buildroot}
+%else
 %cmake_install
+%endif
 popd
 
 %post	-p /sbin/ldconfig
@@ -64,6 +72,19 @@ popd
 %{pginstdir}/share/extension/%{sname}*
 
 %changelog
+* Sat Sep 5 2026 Devrim Gündüz <devrim@gunduz.org> - 4.0.2-2PGDG
+- Fix SLES build failure: %%cmake resolves the source directory
+  relative to the pushd'd build/ directory on SUSE, so use plain
+  cmake .. there instead, matching h3.spec / h3-pg.spec
+- Fix SLES %%install failure: %%cmake_install also assumes it's
+  invoked from the source root, so combined with our manual
+  pushd build it looked for build/build. Use plain make install
+  on SUSE instead, same fix pattern as %%build.
+
+* Sat Sep 5 2026 Devrim Gündüz <devrim@gunduz.org> - 4.0.2-1PGDG
+- Update to 4.0.2 per changes described at:
+  https://github.com/pgRouting/pgrouting/releases/tag/v4.0.2
+
 * Mon Apr 13 2026 Devrim Gündüz <devrim@gunduz.org> - 4.0.1-3PGDG
 - More CMake 4 fixes
 

@@ -1,17 +1,47 @@
 %global sname pg_stat_monitor
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+# The TAP tests need Text::Trim, which is not available on RHEL (nor in EPEL),
+# so the tests cannot run there:
+%if 0%{?rhel}
+%global runselftest 0
+%endif
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Summary:	PostgreSQL Query Performance Monitoring Tool
 Name:		%{sname}_%{pgmajorversion}
-Version:	2.3.2
-Release:	1PGDG%{?dist}
+Version:	2.4.0
+Release:	3PGDG%{?dist}
 License:	PostgreSQL
 URL:		https://github.com/percona/%{sname}
 Source0:	https://github.com/percona/%{sname}/archive/refs/tags/%{version}.tar.gz
+# Remove this patch in next release. Only needed for PostgreSQL 19:
+%if %{pgmajorversion} == 19
+Patch0:		pg_stat_monitor-pg19-beta4-293096b.patch
+%endif
 
+BuildRequires:	openssl-devel krb5-devel
 BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+# The TAP tests use pg_stat_statements and pgbench
+BuildRequires:	postgresql%{pgmajorversion}-contrib
+# prove and the Perl modules that the TAP tests use
+BuildRequires:	perl(Test::Harness) perl(IPC::Run) perl(Text::Trim)
+BuildRequires:	perl(Test::More) perl(lib) perl(File::Basename) perl(File::Compare)
+%endif
 
 Obsoletes:	%{sname}%{pgmajorversion} < 2.1.3-2
 
@@ -44,7 +74,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -55,14 +89,17 @@ This packages provides JIT support for pg_stat_monitor
 
 %prep
 %setup -q -n %{sname}-%{version}
+%if %{pgmajorversion} == 19
+%patch -P0 -p1
+%endif
 
 %build
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags}
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
 
-PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} install DESTDIR=%{buildroot}
+PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg} install DESTDIR=%{buildroot}
 
 # Install README
 %{__install} -d %{buildroot}%{pginstdir}/doc/extension/
@@ -70,6 +107,18 @@ PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} install DESTDIR
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
+
+%check
+%if %runselftest
+# The tests need pg_stat_monitor in shared_preload_libraries
+%pgdg_check_init
+# This test depends on timing: it expects three pg_sleep(3) calls to fall
+# into three different 3-second buckets, and fails randomly.
+%{__rm} -f t/029_bucket_done.pl
+pgdg_check_start main "shared_preload_libraries = 'pg_stat_monitor'" \
+	"max_prepared_transactions = 5"
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %defattr(644,root,root,755)
@@ -82,10 +131,34 @@ PATH=%{pginstdir}/bin:$PATH %{__make} USE_PGXS=1 %{?_smp_mflags} install DESTDIR
 %if %llvm
 %files llvmjit
  %{pginstdir}/lib/bitcode/%{sname}*.bc
- %{pginstdir}/lib/bitcode/%{sname}/*.bc
+ %{pginstdir}/lib/bitcode/%{sname}/src/*.bc
 %endif
 
 %changelog
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 2.4.0-3PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'. The tests cannot run on RHEL, where
+  Text::Trim is not available.
+- Add a patch from upstream to fix builds against PostgreSQL 19 beta 4.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 2.4.0-2PGDG
+- Add missing BR
+
+* Sat Sep 5 2026 - Devrim Gündüz <devrim@gunduz.org> - 2.4.0-1PGDG
+- Update to 2.4.0 per changes described at:
+  https://github.com/percona/pg_stat_monitor/releases/tag/2.4.0
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.2-3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.2-2PGDG
+- Add Amazon Linux 2023 support.
+
 * Wed Feb 18 2026 - Devrim Gündüz <devrim@gunduz.org> - 2.3.2-1PGDG
 - Update to 2.3.2 per changes described at:
   https://github.com/percona/pg_stat_monitor/releases/tag/2.3.2

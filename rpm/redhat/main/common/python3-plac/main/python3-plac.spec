@@ -1,16 +1,20 @@
 %global sname plac
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -23,12 +27,12 @@
 
 %{expand: %%global py3ver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
 
-%global python3_sitelib %(%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
+%global python3_sitelib %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('purelib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 
 Name:		python3-plac
-Version:	1.3.5
-Release:	42PGDG%{?dist}
+Version:	1.4.6
+Release:	2PGDG%{?dist}
 Summary:	The smartest command line arguments parser in the world
 License:	BSD-2-Clause
 URL:		https://github.com/ialbert/plac
@@ -38,7 +42,7 @@ Source1:	plac_runner.py.1
 
 BuildArch:	noarch
 
-BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-devel python%{python3_pkgversion}-setuptools
 Requires:	python%{python3_pkgversion}-%{name}
 
 Provides:	python3-%{sname}%{?_isa} = %{version}-%{release}
@@ -72,6 +76,12 @@ in your source code.}
 %if 0%{?suse_version}
 %py3_compile %{buildroot}%{python3_sitelib}
 %endif
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitelib}
+%endif
 
 %files
 %doc CHANGES.md README.md RELEASE.md
@@ -83,6 +93,29 @@ in your source code.}
 %{python3_sitelib}/__pycache__/%{sname}*pyc
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.6-2PGDG
+- Migrate %%python3_sitelib off the removed distutils.sysconfig module
+  to sysconfig.get_path()
+- Add missing BR (python3-setuptools), needed by setup.py's own build
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Mon Aug 31 2026 Devrim Gündüz <devrim@gunduz.org> - 1.4.6-1PGDG
+- Update to 1.4.6 per changes described at:
+  https://github.com/ialbert/plac/releases/tag/v1.4.6
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.3.5-44PGDG
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated and
+  the build would have failed with a missing-file error (this file's
+  __pycache__ entry in %%files, unlike its siblings', isn't gated to a
+  specific distro set).
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.3.5-43PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Sat Oct 25 2025 Devrim Gündüz <devrim@gunduz.org> - 1.3.5-42PGDG
 - Add SLES 16 support
 

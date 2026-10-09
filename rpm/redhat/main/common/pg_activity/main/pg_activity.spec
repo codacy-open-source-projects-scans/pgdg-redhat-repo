@@ -1,18 +1,19 @@
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -30,13 +31,22 @@
 
 Summary:	Top like application for PostgreSQL server activity monitoring
 Name:		pg_activity
-Version:	3.6.1
-Release:	46PGDG%{?dist}
+Version:	3.6.2
+Release:	47PGDG%{?dist}
 License:	GPLv3
 Url:		https://github.com/dalibo/%{name}/
 Source0:	https://github.com/dalibo/%{name}/archive/v%{version}.tar.gz
 Patch0:		%{name}-3.6.1-pyproject.patch
 BuildArch:	noarch
+
+BuildRequires:	python%{python3_pkgversion}-pip python%{python3_pkgversion}-wheel
+# python%%{python3_pkgversion}-devel is what pulls python3-rpm-generators
+# into the buildroot on RHEL/Fedora; pyproject builds alone do not.
+# Without it, neither python(abi) nor python%%{python3_pkgversion}dist(...)
+# get generated. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+%if !0%{?suse_version}
+BuildRequires:	python%{python3_pkgversion}-devel
+%endif
 
 %if 0%{?rhel} == 8
 BuildRequires:	python3-setuptools >= 39.2
@@ -98,7 +108,7 @@ find . -type f -exec sed -i 's/blessed/blessings/g' {} +
 %files
 %defattr(-,root,root)
 %{_bindir}/%{name}
-%{python_sitelib}/%{name}-%{version}.dist-info/*
+%{python_sitelib}/%{name}-%{version}.dist-info/
 %{python_sitelib}/pgactivity/*.py*
 %{python_sitelib}/pgactivity/__pycache__/*.pyc
 %{python_sitelib}/pgactivity/profiles/*.conf
@@ -107,6 +117,42 @@ find . -type f -exec sed -i 's/blessed/blessings/g' {} +
 %{python_sitelib}/pgactivity/queries/__pycache__/*.pyc
 
 %changelog
+* Sun Sep 20 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.2-47PGDG
+- Add Fedora 45 support
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.2-46PGDG
+- Remove Fedora <= 42 support
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.2-45PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+- Add back python%%{python3_pkgversion}-devel as a BuildRequires on the
+  non-SLES branch, needed to pull python3-rpm-generators into the
+  buildroot for this pyproject build. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.2-44PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %%pyproject_wheel/%%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3.
+  This one already had its own local sitelib override, so the
+  mismatch was active (not just cosmetic): pip would install via 3.9
+  while %%files looked for files under python3.13's site-packages.
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.2-43PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Tue May 12 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.2-42PGDG
+- Update to 3.6.2 per changes described at:
+  https://github.com/dalibo/pg_activity/releases/tag/v3.6.2
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.1-47PGDG
+- Add missing BRs
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.1-46PGDG
 - Add Fedora 44 support, per #167.
 

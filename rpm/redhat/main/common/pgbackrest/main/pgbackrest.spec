@@ -1,28 +1,34 @@
 %global _vpath_builddir build
 %global _vpath_srcdir .
 
+%{!?runselftest:%global runselftest 0}
+
 Summary:	Reliable PostgreSQL Backup & Restore
 Name:		pgbackrest
-Version:	2.58.0
+Version:	2.59.3
 Release:	1PGDG%{?dist}
 License:	MIT
 Url:		http://www.pgbackrest.org/
-Source0:	https://github.com/pgbackrest/pgbackrest/archive/release/%{version}.tar.gz
+Source0:	https://github.com/%{name}/%{name}/releases/download/release%2F%{version}/%{name}-%{version}.tar.gz
 Source1:	%{name}-conf.patch
 Source3:	%{name}.logrotate
 Source4:	%{name}.service
 Source6:	%{name}-sysusers.conf
 Source7:	%{name}-tmpfiles.d
 
-BuildRequires:	gcc libpq5-devel libssh2-devel libxml2-devel libyaml-devel
+BuildRequires:	gcc libpq5-devel libssh2-devel libxml2-devel
 BuildRequires:	libzstd-devel meson zlib-devel
+%if %runselftest
+# The smoke test runs a backup/restore cycle against the PostgreSQL it finds
+BuildRequires:	postgresql%{pgmajorversion}-server python3
+%endif
 
 %if 0%{?suse_version} >= 1500
-Requires:	libopenssl3
+Requires:	libopenssl3 libsystemd0
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
-Requires:	openssl-libs >= 1.1.1k
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?amzn}
+Requires:	openssl-libs >= 1.1.1k systemd-libs
 BuildRequires:	openssl-devel
 %endif
 
@@ -31,7 +37,7 @@ Requires:	lz4-libs libzstd libssh2
 BuildRequires:	lz4-devel bzip2-devel ninja-build
 %endif
 %if 0%{?suse_version} && 0%{?suse_version} >= 1500
-Requires:	liblz4-1 libzstd1 libssh2-1
+Requires:	liblz4-1 libzstd1 libssh2-1 libsystemd0
 BuildRequires:	liblz4-devel libbz2-devel ninja
 %endif
 
@@ -56,7 +62,7 @@ protocol allows for more flexibility and limits the types of connections that
 are required to perform a backup which increases security.
 
 %prep
-%setup -q -n %{name}-release-%{version}
+%setup -q -n %{name}-%{version}
 
 %build
 %{__install} -d build
@@ -83,6 +89,15 @@ are required to perform a backup which increases security.
 
 %{__mkdir} -p %{buildroot}/%{_tmpfilesdir}
 %{__install} -m 0644 %{SOURCE7} %{buildroot}/%{_tmpfilesdir}/%{name}.conf
+
+%check
+%if %runselftest
+# Upstream's smoke test for packagers: initdb, stanza-create, check, full and
+# incremental backups, then a restore of the latter, against every supported
+# PostgreSQL found on the system. When run as root, it drops to the postgres
+# user.
+%meson_test --suite smoke -v
+%endif
 
 %pre
 %sysusers_create_package %{name} %SOURCE6
@@ -126,6 +141,41 @@ fi
 %attr(-,postgres,postgres) /var/spool/%{name}
 
 %changelog
+* Sun Oct 4 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.3-1PGDG
+- Update to 2.59.3 per changes described at:
+  https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.3
+
+* Mon Sep 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.2-2PGDG
+- Add %%check, running upstream's smoke test (a backup/restore cycle
+  against PostgreSQL 18). It is disabled by default; enable it with
+  --define 'runselftest 1'.
+
+* Sun Sep 27 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.2-1PGDG
+- Update to 2.59.2 per changes described at:
+  https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.2
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.1-3PGDG
+- Fix the service file's restart safeguards: StartLimitIntervalSec=0
+  disabled systemd's start-rate limiting entirely (the opposite of a
+  safeguard), and a dead Restart=always was silently overridden by a
+  later Restart=on-failure. Set StartLimitIntervalSec=120 and
+  StartLimitBurst=10, and drop the dead Restart=always line, so a
+  crash loop is actually bounded. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.1-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Mon Aug 17 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.1-1PGDG
+- Update to 2.59.1, per changes described at:
+  https://pgbackrest.org/release.html#2.59.1
+
+* Thu Jul 30 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.0-2PGDG
+- Remove obsoleted BR
+
+* Mon Jul 20 2026 Devrim Gündüz <devrim@gunduz.org> - 2.59.0-1PGDG
+- Update to 2.59.0, per changes described at:
+  https://pgbackrest.org/release.html#2.59.0
+
 * Tue Jan 20 2026 Devrim Gündüz <devrim@gunduz.org> - 2.58.0-1PGDG
 - Update to 2.58.0, per changes described at:
   https://pgbackrest.org/release.html#2.58.0

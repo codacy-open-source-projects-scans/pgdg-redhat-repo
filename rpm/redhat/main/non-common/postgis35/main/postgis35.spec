@@ -19,21 +19,39 @@
 %global	projfullversion %proj96fullversion
 %global	projinstdir %proj96instdir
 %else
-%global	gdalfullversion %gdal312fullversion
-%global	gdalmajorversion %gdal312majorversion
-%global	gdalinstdir %gdal312instdir
+%global	gdalfullversion %gdal313fullversion
+%global	gdalmajorversion %gdal313majorversion
+%global	gdalinstdir %gdal313instdir
 %global	projmajorversion %proj98majorversion
 %global	projfullversion %proj98fullversion
 %global	projinstdir %proj98instdir
 %endif
 
+# clang 23 on Fedora 45 crashes in ThinLTOBitcodeWriterPass while building the
+# JIT bitcode (lwgeom_ogc.bc), so build without llvmjit there for now.
+%if 0%{?fedora} >= 45
+%{!?llvm:%global llvm 0}
+%else
 %{!?llvm:%global llvm 1}
+%endif
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
+%{!?runselftest:%global runselftest 0}
 %{!?utils:%global	utils 1}
 %{!?shp2pgsqlgui:%global	shp2pgsqlgui 1}
 %{!?raster:%global	raster 1}
 
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
 %{!?sfcgal:%global	sfcgal 1}
 %endif
 %if 0%{?rhel} == 8
@@ -46,8 +64,8 @@
 
 Summary:	Geographic Information Systems Extensions to PostgreSQL
 Name:		%{sname}%{postgiscurrmajorversion}_%{pgmajorversion}
-Version:	%{postgismajorversion}.6
-Release:	2PGDG%{?dist}
+Version:	%{postgismajorversion}.7
+Release:	4PGDG%{?dist}
 License:	GPLv2+
 Source0:	https://download.osgeo.org/postgis/source/postgis-%{version}.tar.gz
 Source2:	https://download.osgeo.org/postgis/docs/postgis-%{version}-en.pdf
@@ -55,10 +73,21 @@ Source4:	%{sname}%{postgiscurrmajorversion}-filter-requires-perl-Pg.sh
 
 URL:		https://www.postgis.net/
 
-BuildRequires:	postgresql%{pgmajorversion}-devel geos%{geosmajorversion}-devel >= %{geosfullversion}
+BuildRequires:	autoconf automake libtool
+BuildRequires:	geos%{geosmajorversion}-devel >= %{geosfullversion}
+BuildRequires:	postgresql%{pgmajorversion}-devel
 BuildRequires:	libgeotiff%{libgeotiffmajorversion}-devel libxml2 libxslt
-BuildRequires:	pgdg-srpm-macros >= 1.0.53 gmp-devel pcre2-devel
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+BuildRequires:	pgdg-srpm-macros >= 1.0.54 gmp-devel pcre2-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server postgresql%{pgmajorversion}-contrib
+BuildRequires:	pgdg-srpm-macros >= 2.0.0
+%if 0%{?suse_version} >= 1500
+BuildRequires:	cunit-devel
+%else
+BuildRequires:	CUnit-devel
+%endif
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	pcre2
 %else
 Requires:	libpcre2-8-0
@@ -70,17 +99,19 @@ Requires:	gmp
 %endif
 %if 0%{?suse_version}
 %if 0%{?suse_version} >= 1500
-BuildRequires:	libjson-c-devel proj%{projmajorversion}-devel >= %{projfullversion}
+BuildRequires:	libjson-c-devel
+BuildRequires:	proj%{projmajorversion}-devel >= %{projfullversion}
 %endif
 %else
-BuildRequires:	proj%{projmajorversion}-devel >= %{projfullversion} flex json-c-devel
+BuildRequires:	flex json-c-devel
+BuildRequires:	proj%{projmajorversion}-devel >= %{projfullversion}
 %endif
 BuildRequires:	libxml2-devel
 %if %{shp2pgsqlgui}
 BuildRequires:	gtk2-devel > 2.8.0
 %endif
 %if %{sfcgal}
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
 BuildRequires:	SFCGAL SFCGAL-devel >= 2.1.0
 %endif
 %if 0%{?rhel} == 8 || 0%{?suse_version} >= 1500
@@ -98,8 +129,13 @@ Requires:	libprotobuf-c1
 BuildRequires:	libprotobuf-c-devel
 %else
 # Fedora/RHEL:
+%if 0%{?fedora} >= 45
+Requires:	protobuf3-c >= 1.1.0
+BuildRequires:	protobuf3-c-devel >= 1.1.0
+%else
 Requires:	protobuf-c >= 1.1.0
 BuildRequires:	protobuf-c-devel >= 1.1.0
+%endif
 %endif
 
 Requires:	postgresql%{pgmajorversion} geos%{geosmajorversion} >= %{geosfullversion}
@@ -117,7 +153,7 @@ Requires:	libjson-c5
 Requires:	libxerces-c-3_3
 BuildRequires:	libxerces-c-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	json-c xerces-c
 BuildRequires:	xerces-c-devel
 %endif
@@ -201,7 +237,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -256,21 +296,39 @@ autoconf
 find . -name "Makefile" | xargs sed -i 's/-flto\b//g'
 %endif
 
-SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so"
+SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so" %{with_llvm_arg}
 
-%{__make} %{?_smp_mflags} -C extensions
+%{__make} %{?_smp_mflags} -C extensions %{with_llvm_arg}
 
 %if %utils
- SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils
+ SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils %{with_llvm_arg}
 %endif
 
 %install
 %{__rm} -rf %{buildroot}
-SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot}
+SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
 
 %if %utils
 %{__install} -d %{buildroot}%{_datadir}/%{name}
 %{__install} -m 644 utils/*.pl %{buildroot}%{_datadir}/%{name}
+%endif
+
+%check
+%if %runselftest
+%pgdg_check_init
+pgdg_check_start main
+# The unit tests of liblwgeom, the loader and the raster core. They need CUnit.
+%{__make} check-unit %{with_llvm_arg}
+# PostGIS runs its regression tests with a harness of its own, run_test.pl.
+# installcheck-base makes it load PostGIS with CREATE EXTENSION, from this
+# package's files, and then run the tests once more after upgrading the
+# extensions. Keep the harness' files in the build directory instead of the
+# shared /tmp/pgis_reg, and print the diffs of the failed tests.
+export PGIS_REG_TMPDIR=$PGDG_CHECK_DIR/pgis_reg
+%{__make} installcheck-base %{with_llvm_arg} || {
+	find $PGIS_REG_TMPDIR -name '*_diff' -printf '===== %p\n' -exec cat {} \;
+	exit 1
+}
 %endif
 
 # Create alternatives entries for common binaries
@@ -389,6 +447,35 @@ fi
 %endif
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 3.5.7-4PGDG
+- Add %%check, running the unit tests and the regression tests with the
+  %%check helpers from pgdg-srpm-macros 2.0.0. It is disabled by default;
+  enable it with --define 'runselftest 1'.
+
+* Sat Sep 19 2026 Devrim Gündüz <devrim@gunduz.org> - 3.5.7-3PGDG
+- Fedora 45: protobuf-c(-devel) is now protobuf3-c(-devel). Use the new names.
+- Fedora 45: build without llvmjit for now, as clang 23 crashes building the JIT bitcode.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 3.5.7-2PGDG
+- Add missing BR
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.7-1PGDG
+- Update to 3.5.7 per changes described at:
+  https://gitea.osgeo.org/postgis/postgis/raw/tag/3.5.7/NEWS
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.6-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Tue Aug 18 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.6-4PGDG
+- Build with GDAL 3.13 on all platforms except RHEL 8.
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.6-3PGDG
+- Add Amazon Linux 2023 support.
+
 * Mon Apr 27 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.6-2PGDG
 - Update GDAL dependency for SLES 15.
 

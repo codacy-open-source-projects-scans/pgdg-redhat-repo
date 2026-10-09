@@ -1,16 +1,21 @@
 %global sname consul
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -25,7 +30,7 @@
 
 Name:		python3-%{sname}
 Version:	1.1.0
-Release:	4PGDG%{?dist}
+Release:	10PGDG%{?dist}
 Summary:	Python client for Consul
 
 License:	MIT
@@ -42,6 +47,11 @@ BuildRequires:	python-rpm-macros
 %else
 BuildRequires:	pyproject-rpm-macros
 %endif
+
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-wheel
+
 
 %description
 Python client for Consul (http://www.consul.io/)
@@ -60,9 +70,37 @@ Python client for Consul (http://www.consul.io/)
 %doc README.rst
 %{python3_sitelib}/consul/__pycache__/*
 %{python3_sitelib}/consul/*.py
-%{python3_sitelib}/python_%{sname}-%{version}.dist-info/*
+%{python3_sitelib}/python_%{sname}-%{version}.dist-info/
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.0-10PGDG
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.0-9PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.0-8PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.1.0-7PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.1.0-6PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 1.1.0-5PGDG
+- Add missing BRs
+
 * Sat Nov 8 2025 Devrim Gündüz <devrim@gunduz.org> - 1.1.0-4PGDG
 - Add SLES 16 support
 - Switch to pyproject build

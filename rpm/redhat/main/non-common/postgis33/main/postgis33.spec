@@ -19,9 +19,9 @@
 %global	projfullversion %proj96fullversion
 %global	projinstdir %proj96instdir
 %else
-%global	gdalfullversion %gdal312fullversion
-%global	gdalmajorversion %gdal312majorversion
-%global	gdalinstdir %gdal312instdir
+%global	gdalfullversion %gdal313fullversion
+%global	gdalmajorversion %gdal313majorversion
+%global	gdalinstdir %gdal313instdir
 %global	projmajorversion %proj98majorversion
 %global	projfullversion %proj98fullversion
 %global	projinstdir %proj98instdir
@@ -32,13 +32,31 @@
 
 %global	libspatialitemajorversion      50
 
+# clang 23 on Fedora 45 crashes in ThinLTOBitcodeWriterPass while building the
+# JIT bitcode (lwgeom_ogc.bc), so build without llvmjit there for now.
+%if 0%{?fedora} >= 45
+%{!?llvm:%global llvm 0}
+%else
 %{!?llvm:%global llvm 1}
+%endif
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
+%{!?runselftest:%global runselftest 0}
 %{!?utils:%global	utils 1}
 %{!?shp2pgsqlgui:%global	shp2pgsqlgui 1}
 %{!?raster:%global     raster 1}
 
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
 %{!?sfcgal:%global	sfcgal 1}
 %endif
 %if 0%{?rhel} == 8
@@ -52,19 +70,34 @@
 Summary:	Geographic Information Systems Extensions to PostgreSQL
 Name:		%{sname}%{postgiscurrmajorversion}_%{pgmajorversion}
 Version:	%{postgismajorversion}.10
-Release:	2PGDG%{?dist}
+Release:	8PGDG%{?dist}
 License:	GPLv2+
 Source0:	https://download.osgeo.org/postgis/source/postgis-%{version}.tar.gz
 Source2:	https://download.osgeo.org/postgis/docs/postgis-%{version}.pdf
 Source4:	%{sname}%{postgiscurrmajorversion}-filter-requires-perl-Pg.sh
 Patch0:		%{sname}%{postgiscurrmajorversion}-%{postgismajorversion}.0-gdalfpic.patch
+Patch1:		%{sname}%{postgiscurrmajorversion}-%{version}-gdal-minmax.patch
+Patch2:		%{sname}%{postgiscurrmajorversion}-%{version}-pg18-pqsignal.patch
+Patch3:		%{sname}%{postgiscurrmajorversion}-%{version}-pg18-vacuum-delay-point.patch
+Patch4:		%{sname}%{postgiscurrmajorversion}-%{version}-pg18-tupledescattr.patch
+Patch5:		%{sname}%{postgiscurrmajorversion}-%{version}-pg18-json-categorize-type.patch
+Patch6:		%{sname}%{postgiscurrmajorversion}-regress-pg18-geos314.patch
 
 URL:		https://www.postgis.net/
 
 BuildRequires:	postgresql%{pgmajorversion}-devel geos%{geosmajorversion}-devel >= %{geosfullversion}
 BuildRequires:	libgeotiff%{libgeotiffmajorversion}-devel libxml2 libxslt autoconf
-BuildRequires:	pgdg-srpm-macros >= 1.0.53 gmp-devel pcre2-devel
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+BuildRequires:	pgdg-srpm-macros >= 1.0.54 gmp-devel pcre2-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server postgresql%{pgmajorversion}-contrib
+BuildRequires:	pgdg-srpm-macros >= 2.0.0
+%if 0%{?suse_version} >= 1500
+BuildRequires:	cunit-devel
+%else
+BuildRequires:	CUnit-devel
+%endif
+%endif
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	pcre2
 %else
 Requires:	libpcre2-8-0
@@ -103,8 +136,13 @@ Requires:	libprotobuf-c1
 BuildRequires:	libprotobuf-c-devel
 %else
 # Fedora/RHEL:
+%if 0%{?fedora} >= 45
+Requires:	protobuf3-c >= 1.1.0
+BuildRequires:	protobuf3-c-devel >= 1.1.0
+%else
 Requires:	protobuf-c >= 1.1.0
 BuildRequires:	protobuf-c-devel >= 1.1.0
+%endif
 %endif
 
 Requires:	postgresql%{pgmajorversion} geos%{geosmajorversion} >= %{geosfullversion}
@@ -126,7 +164,7 @@ Requires:	libjson-c5
 Requires:	libxerces-c-3_3
 BuildRequires:	libxerces-c-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8
 Requires:	json-c xerces-c
 BuildRequires:	xerces-c-devel
 %endif
@@ -211,7 +249,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -225,6 +267,12 @@ This package provides JIT support for PostGIS 3.3
 # Copy .pdf file to top directory before installing.
 %{__cp} -p %{SOURCE2} .
 %patch -P 0 -p0
+%patch -P 1 -p0
+%patch -P 2 -p0
+%patch -P 3 -p0
+%patch -P 4 -p0
+%patch -P 5 -p0
+%patch -P 6 -p0
 
 %build
 LDFLAGS="-Wl,-rpath,%{geosinstdir}/lib64 ${LDFLAGS}" ; export LDFLAGS
@@ -265,21 +313,43 @@ autoconf
 find . -name "Makefile" | xargs sed -i 's/-flto\b//g'
 %endif
 
-SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so"
+SHLIB_LINK="$SHLIB_LINK" %{__make} LPATH=`%{pginstdir}/bin/pg_config --pkglibdir` shlib="%{sname}-%{postgissomajorversion}.so" %{with_llvm_arg}
 
-%{__make} %{?_smp_mflags} -C extensions
+%{__make} %{?_smp_mflags} -C extensions %{with_llvm_arg}
 
 %if %utils
- SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils
+ SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} -C utils %{with_llvm_arg}
 %endif
 
 %install
 %{__rm} -rf %{buildroot}
-SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot}
+SHLIB_LINK="$SHLIB_LINK" %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
 
 %if %utils
 %{__install} -d %{buildroot}%{_datadir}/%{name}
 %{__install} -m 644 utils/*.pl %{buildroot}%{_datadir}/%{name}
+%endif
+
+%check
+%if %runselftest
+%pgdg_check_init
+pgdg_check_start main
+# The unit tests of liblwgeom, the raster core and the loader. They need CUnit.
+# The top level check-unit target would also validate the documentation,
+# which needs the DocBook DTD.
+for dir in liblwgeom raster loader; do
+	%{__make} -C $dir check-unit %{with_llvm_arg}
+done
+# PostGIS runs its regression tests with a harness of its own, run_test.pl.
+# installcheck-base makes it load PostGIS with CREATE EXTENSION, from this
+# package's files, and then run the tests once more after upgrading the
+# extensions. Keep the harness' files in the build directory instead of the
+# shared /tmp/pgis_reg, and print the diffs of the failed tests.
+export PGIS_REG_TMPDIR=$PGDG_CHECK_DIR/pgis_reg
+%{__make} installcheck-base %{with_llvm_arg} || {
+	find $PGIS_REG_TMPDIR -name '*_diff' -printf '===== %p\n' -exec cat {} \;
+	exit 1
+}
 %endif
 
 # Create alternatives entries for common binaries
@@ -392,6 +462,37 @@ fi
 %endif
 
 %changelog
+* Fri Oct 2 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.10-8PGDG
+- Add %%check, running the unit tests and the regression tests with the
+  %%check helpers from pgdg-srpm-macros 2.0.0. It is disabled by default;
+  enable it with --define 'runselftest 1'.
+- Add a patch to fix two regression tests, as upstream did in the later
+  branches: regress_index did not parse the EXPLAIN ANALYZE output of
+  PostgreSQL 18, and geos39 expected the results of an older GEOS.
+
+* Sat Sep 19 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.10-7PGDG
+- Fedora 45: protobuf-c(-devel) is now protobuf3-c(-devel). Use the new names.
+- Fedora 45: build without llvmjit for now, as clang 23 crashes building the JIT bitcode.
+
+* Sat Sep 12 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.10-6PGDG
+- Add 3 patches to fix builds against PG 18.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - %{postgismajorversion}.10-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Tue Aug 18 2026 Devrim Gunduz <devrim@gunduz.org> - 3.3.10-4PGDG
+- Build with GDAL 3.13 on all platforms except RHEL 8.
+- Fix build failure with GDAL 3.13, which no longer defines the MIN/MAX
+  macros in cpl_port.h; use PostgreSQL's Min macro instead.
+
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.3.10-3PGDG
+- Add Amazon Linux 2023 support.
+
 * Mon Apr 27 2026 Devrim Gunduz <devrim@gunduz.org> - 3.3.10-2PGDG
 - Update GDAL dependency for SLES 15.
 

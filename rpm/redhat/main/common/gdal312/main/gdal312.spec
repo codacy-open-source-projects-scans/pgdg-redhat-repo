@@ -16,13 +16,13 @@
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -72,7 +72,7 @@
 
 Name:		%{sname}312
 Version:	3.12.4
-Release:	2PGDG%{?dist}
+Release:	8PGDG%{?dist}
 Summary:	GIS file format library
 License:	MIT
 URL:		https://www.gdal.org
@@ -100,6 +100,10 @@ Requires:	lz4
 %endif
 
 BuildRequires:	ant cmake gcc-c++ bison pgdg-srpm-macros >= 1.0.52
+%if 0%{?suse_version} == 1500
+# %%build and %%install use GCC 13 there
+BuildRequires:	gcc13 gcc13-c++
+%endif
 
 BuildRequires:	armadillo-devel
 BuildRequires:	cfitsio-devel
@@ -130,7 +134,7 @@ BuildRequires:	libpng-devel >= 1.6.0
 %if 0%{?fedora}
 BuildRequires:	libkml-devel
 %endif
-BuildRequires:	libspatialite%{libspatialitemajorversion}-devel
+BuildRequires:	libspatialite%{libspatialitemajorversion}-devel >= 5.1.0-16
 
 BuildRequires:	libtiff-devel >= 4.1
 BuildRequires:	libwebp-devel
@@ -208,7 +212,19 @@ BuildRequires:	libdap-devel
 BuildRequires:	expat-devel
 BuildRequires:	hdf-devel hdf-static hdf5-devel >= 1.10
 BuildRequires:	jasper-devel
+%if 0%{?rhel} == 8
+BuildRequires:	java-11-openjdk-devel
+%else
+%if 0%{?rhel} == 9
+BuildRequires:	java-17-openjdk-devel
+%else
+%if 0%{?rhel} == 10
+BuildRequires:	java-21-openjdk-devel
+%else
 BuildRequires:	java-devel >= 1:1.6.0
+%endif
+%endif
+%endif
 BuildRequires:	json-c-devel
 BuildRequires:	libdap-devel libgta-devel
 BuildRequires:	perl-devel
@@ -219,8 +235,6 @@ BuildRequires:	xerces-c-devel
 BuildRequires:	xz-devel
 BuildRequires:	zlib-devel
 BuildRequires:	libtirpc-devel
-
-BuildRequires:	python3-setuptools
 
 BuildRequires:	qhull-devel
 %if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
@@ -271,9 +285,10 @@ Summary:	GDAL file format library
 # See frmts/grib/degrib/README.TXT
 Provides:	bundled(g2lib) = 1.6.0
 Provides:	bundled(degrib) = 2.14
+Requires:	geos%{geosmajorversion} >= %{geosfullversion}
 Requires:	netcdf >= 4.7 gpsbabel
 Requires:	libgeotiff%{libgeotiffmajorversion}
-Requires:	libspatialite%{libspatialitemajorversion}
+Requires:	libspatialite%{libspatialitemajorversion} >= 5.1.0-16
 
 %if 0%{?suse_version}
 %if 0%{?suse_version} <= 1499
@@ -311,7 +326,11 @@ This package contains the API documentation for %{name}.
 %{?py_provide:%py_provide python3-gdal}
 Summary:	Python modules for the GDAL file format library
 BuildRequires:	python%{python3_pkgversion}-numpy
-BuildRequires:	python%{python3_pkgversion}-devel
+%if 0%{?suse_version}
+# numpy/arrayobject.h
+BuildRequires:	python%{python3_pkgversion}-numpy-devel
+%endif
+BuildRequires:	python%{python3_pkgversion}-devel python%{python3_pkgversion}-setuptools
 Requires:	python%{python3_pkgversion}-numpy
 Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
 
@@ -365,8 +384,7 @@ export CPPFLAGS="$CPPFLAGS -I%{projinstdir}/include -I%{libgeotiffinstdir}/inclu
 export CXXFLAGS="$CFLAGS -I%{_includedir}/tirpc"
 export CPPFLAGS="$CPPFLAGS -I%{_includedir}/tirpc"
 %endif
-LDFLAGS="$LDFLAGS -L%{projinstdir}/lib64 -L%{libgeotiffinstdir}/lib -L%{geosinstdir}/lib64 -L%{libspatialiteinstdir}/lib -L%{_libdir}"; export LDFLAGS
-SHLIB_LINK="$SHLIB_LINK -Wl,-rpath,%{projinstdir}/lib64,%{libgeotiffinstdir}/lib,%{geosinstdir}/lib64,%{libspatialiteinstdir}/lib" ; export SHLIB_LINK
+LDFLAGS="$LDFLAGS -L%{projinstdir}/lib64 -L%{libgeotiffinstdir}/lib -L%{geosinstdir}/lib64 -L%{libspatialiteinstdir}/lib -L%{_libdir} -Wl,-rpath,%{projinstdir}/lib64:%{libgeotiffinstdir}/lib:%{geosinstdir}/lib64:%{libspatialiteinstdir}/lib"; export LDFLAGS
 
 %if 0%{?suse_version}
 %if 0%{?suse_version} >= 1500
@@ -530,6 +548,39 @@ done
 %endif
 
 %changelog
+* Mon Oct 5 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-8PGDG
+- Embed the PROJ, GeOS, libgeotiff and SpatiaLite library paths as
+  rpaths, so that GDAL uses GeOS 3.14 also when other GeOS versions are
+  installed: they were passed in SHLIB_LINK, which CMake ignores.
+- Require the GeOS package that we build against.
+- Build against and require libspatialite50 5.1.0-16 or later, which
+  uses GeOS 3.14 also when other GeOS versions are installed.
+- Add the numpy-devel BuildRequires on SUSE, which has the numpy headers
+  that the Python bindings need.
+- Add the gcc13 BuildRequires on SLES 15, where the package is built
+  with GCC 13.
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-7PGDG
+- Remove Fedora <= 42 support
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-6PGDG
+- Pin java-11/17/21-openjdk-devel BuildRequires on RHEL 8/9/10
+  respectively, instead of the unversioned java-devel, which resolves
+  to the outdated default JDK 8 on RHEL 8. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/110
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-5PGDG
+- Set python3_pkgversion/__ospython for Amazon Linux 2023 (python3.13),
+  to keep the Python stack consistent across all packages in the repo.
+  Note: gdal_python_enabled still doesn't cover amzn, so this has no
+  effect until that's revisited separately.
+
+* Tue Jul 21 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-4PGDG
+- Rebuild against newer libarrow against RHEL 10.2 - arm64
+
+* Wed May 6 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-3PGDG
+- Add proper setuptools BR.
+
 * Tue Apr 28 2026 Devrim Gunduz <devrim@gunduz.org> - 3.12.4-2PGDG
 - Use Python 3.14 on Fedora 44. Many BRs and Requires are not ready
   for 3.15. Per #167

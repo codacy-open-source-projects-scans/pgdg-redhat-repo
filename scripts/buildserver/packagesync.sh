@@ -78,6 +78,131 @@ usage() {
 	exit 1
 }
 
+# Function to check that the RPMs whose file names are read from stdin (one
+# per line) are signed. Repo files have pkg_gpgcheck=1, so clients refuse
+# unsigned packages; they must never get into the repos. This only checks
+# that a PGP signature is present, not who made it or whether it is valid.
+# Returns 1 if any RPM is unsigned or cannot be read.
+verify_signed() {
+	local line output total=0 bad=0
+	local qf='%|RSAHEADER?{%{RSAHEADER:pgpsig}}:{%|DSAHEADER?{%{DSAHEADER:pgpsig}}:{(none)}|}| %{NAME}-%{VERSION}-%{RELEASE}.%|SOURCERPM?{%{ARCH}}:{src}|.rpm\n'
+
+	# Both stdout and stderr are read, so that an RPM which cannot be read
+	# is reported (rpm prints "error: ..." for it) and not skipped. A here-string,
+	# not process substitution, as the scripts also run under "sh" (POSIX mode),
+	# where process substitution does not exist in bash 4.4:
+	output=$(xargs -d '\n' -r rpm -qp --nosignature --qf "$qf" 2>&1)
+	while IFS= read -r line
+	do
+		case "$line" in
+			"")
+				continue
+				;;
+			"(none) "*)
+				echo "${red}UNSIGNED:${reset} ${line#"(none) "}"
+				total=$((total + 1))
+				bad=$((bad + 1))
+				;;
+			error:*)
+				echo "${red}UNREADABLE:${reset} ${line}"
+				total=$((total + 1))
+				bad=$((bad + 1))
+				;;
+			*)
+				total=$((total + 1))
+				;;
+		esac
+	done <<< "$output"
+
+	if [ $bad -gt 0 ]; then
+		echo "${red}ERROR:${reset} $bad of $total new RPMs are unsigned or unreadable."
+		return 1
+	fi
+
+	echo "${green}All $total new RPMs are signed.${reset}"
+	return 0
+}
+
+# Print the directory that the given sync target reads its RPMs from.
+sync_source_dir() {
+	local target="$1"
+
+	case $target in
+		common)
+			if [ $TESTING_MODE -eq 1 ]; then echo /var/lib/pgsql/rpmcommontesting; else echo /var/lib/pgsql/rpmcommon; fi
+			;;
+		extras)
+			if [ $TESTING_MODE -eq 1 ]; then echo /var/lib/pgsql/pgdg.extrastesting; else echo /var/lib/pgsql/pgdg.extras; fi
+			;;
+		alpha)
+			echo /var/lib/pgsql/rpm${pgAlphaVersion}testing
+			;;
+		beta)
+			echo /var/lib/pgsql/rpm${pgBetaVersion}testing
+			;;
+		*)
+			# A PostgreSQL major version:
+			if [ $TESTING_MODE -eq 1 ]; then echo /var/lib/pgsql/rpm${target}testing; else echo /var/lib/pgsql/rpm${target}; fi
+			;;
+	esac
+}
+
+# Print the paths of the RPMs of a sync target that are not in its staging
+# directories (ALLRPMS, ALLDEBUGRPMS and ALLSRPMS) yet, so the RPMs that this
+# sync would add. The debuginfo/debugsource RPMs live in ALLDEBUGRPMS after a
+# sync, hence that directory is compared as well. RPMs which are staged
+# already were checked when they were staged, so they are not checked again.
+# RPMs are compared by file name only.
+list_new_rpms() {
+	local base="$1"
+
+	# One stream for awk, staged names ("S") first, then the candidates ("C"),
+	# so that it also works when the staging directories are empty:
+	{
+		find "$base/ALLRPMS" "$base/ALLDEBUGRPMS" "$base/ALLSRPMS" -name '*.rpm' -printf 'S\t%f\n' 2>/dev/null
+		find "$base/RPMS/$osarch" "$base/RPMS/noarch" "$base/SRPMS" -name '*.rpm' -printf 'C\t%f\t%p\n' 2>/dev/null
+	} | awk -F'\t' '$1 == "S" { staged[$2]; next } !($2 in staged) { print $3 }'
+}
+
+# Check the signatures of the RPMs that are about to be added to the staging
+# directories, before anything is synced. One unsigned package blocks the
+# whole sync: nothing is copied, no repo metadata is created and nothing goes
+# to S3. Takes the sync targets: common, extras, alpha, beta and/or PostgreSQL
+# versions.
+preflight_signature_check() {
+	local target base new_list
+	local -a bases=()
+
+	for target in "$@"
+	do
+		# These targets are skipped by their sync functions, so don't check them:
+		if [ "$target" == "extras" ] && [ "$extrasrepoenabled" != 1 ]; then continue; fi
+		if [ $TESTING_MODE -eq 1 ] && { [ "$target" == "alpha" ] || [ "$target" == "beta" ]; }; then continue; fi
+
+		base=$(sync_source_dir "$target")
+		# The same directory can come from more than one target (e.g. a version listed twice):
+		if [[ ! " ${bases[*]} " =~ " $base " ]]; then
+			bases+=("$base")
+		fi
+	done
+
+	[ ${#bases[@]} -eq 0 ] && return 0
+
+	echo "${green}=== Checking that the new RPMs to be synced are signed ===${reset}"
+	new_list=$(for base in "${bases[@]}"; do list_new_rpms "$base"; done)
+
+	if [ -z "$new_list" ]; then
+		echo "${green}No new RPMs to check.${reset}"
+		return 0
+	fi
+
+	if ! echo "$new_list" | verify_signed
+	then
+		echo "${red}ERROR:${reset} Not syncing anything. Sign the packages above (see signallpackages.sh) and run this script again."
+		exit 1
+	fi
+}
+
 # Function to sync common RPMs
 sync_common() {
 	if [ $TESTING_MODE -eq 1 ]; then
@@ -181,11 +306,6 @@ sync_common() {
 
 # Function to sync extras RPMs
 sync_extras() {
-	if [ $TESTING_MODE -eq 1 ]; then
-		echo "${yellow}WARNING:${reset} Testing mode is not applicable for extras RPMs. Skipping."
-		return 0
-	fi
-
 	# Check if extras repo is enabled
 	if [ "$extrasrepoenabled" != 1 ]
 	then
@@ -194,9 +314,13 @@ sync_extras() {
 		return 1
 	fi
 
-	echo "${green}=== Syncing PostgreSQL extras RPMs for $os - $osarch ===${reset}"
-
-	export BASE_DIR=/var/lib/pgsql/pgdg.extras
+	if [ $TESTING_MODE -eq 1 ]; then
+		echo "${green}=== Syncing PostgreSQL extras RPMs for $os - $osarch (TESTING MODE) ===${reset}"
+		export BASE_DIR=/var/lib/pgsql/pgdg.extrastesting
+	else
+		echo "${green}=== Syncing PostgreSQL extras RPMs for $os - $osarch ===${reset}"
+		export BASE_DIR=/var/lib/pgsql/pgdg.extras
+	fi
 
 	export EXTRAS_RPM_DIR=$BASE_DIR/ALLRPMS
 	export EXTRAS_SRPM_DIR=$BASE_DIR/ALLSRPMS
@@ -225,30 +349,57 @@ sync_extras() {
 	echo $GPG_PASSWORD | /usr/bin/gpg2 -a --pinentry-mode loopback --detach-sign --batch --yes --passphrase-fd 0 $EXTRAS_SRPM_DIR/repodata/repomd.xml
 	echo $GPG_PASSWORD | /usr/bin/gpg2 -a --pinentry-mode loopback --detach-sign --batch --yes --passphrase-fd 0 $EXTRAS_DEBUG_RPM_DIR/repodata/repomd.xml
 
-	# Sync SRPMs to S3 bucket:
-	aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/extras/$osdistro/$osfullversion-$osarch --exclude "*.html" --exclude "repodata"
-	aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
-	aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/extras/$osdistro/$osfullversion-$osarch/repodata/*
+	if [ $TESTING_MODE -eq 1 ]; then
+		# Sync SRPMs to S3 bucket:
+		aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/testing/extras/$osdistro/$osfullversion-$osarch --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/testing/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
+		aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/testing/extras/$osdistro/$osfullversion-$osarch/repodata/*
 
-	# Sync debug* RPMs to S3 bucket:
-	aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/debug/extras/$osdistro/$osfullversion-$osarch/ --exclude "*.html" --exclude "repodata"
-	aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/debug/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
-	aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /debug/extras/$osdistro/$osfullversion-$osarch/repodata/*
+		# Sync debug* RPMs to S3 bucket:
+		aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/testing/debug/extras/$osdistro/$osfullversion-$osarch/ --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/testing/debug/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
+		aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /testing/debug/extras/$osdistro/$osfullversion-$osarch/repodata/*
 
-	# S3 does not allow symlinks, so we have to sync the packages once again to the OS major version directory if this is the latest version of the OS:
-	if [ "$osislatest" == 1 ]
-	then
-		aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/extras/$osdistro/$os-$osarch --exclude "*.html" --exclude "repodata"
-		aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+		# S3 does not allow symlinks, so we have to sync the packages once again to the OS major version directory if this is the latest version of the OS:
+		if [ "$osislatest" == 1 ]
+		then
+			aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/testing/extras/$osdistro/$os-$osarch --exclude "*.html" --exclude "repodata"
+			aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/testing/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+			aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/testing/debug/extras/$osdistro/$os-$osarch/ --exclude "*.html" --exclude "repodata"
+			aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/testing/debug/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+			# Invalidate the caches:
+			aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/testing/extras/$osdistro/$os-$osarch/repodata/*
+			aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /testing/debug/extras/$osdistro/$os-$osarch/repodata/*
+		fi
+	else
+		# Sync SRPMs to S3 bucket:
+		aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/extras/$osdistro/$osfullversion-$osarch --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
+		aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/extras/$osdistro/$osfullversion-$osarch/repodata/*
 
-		aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/debug/extras/$osdistro/$os-$osarch/ --exclude "*.html" --exclude "repodata"
-		aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/debug/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
-		# Invalidate the caches:
-		aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/extras/$osdistro/$os-$osarch/repodata/*
-		aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /debug/extras/$osdistro/$os-$osarch/repodata/*
+		# Sync debug* RPMs to S3 bucket:
+		aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/debug/extras/$osdistro/$osfullversion-$osarch/ --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/debug/extras/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
+		aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /debug/extras/$osdistro/$osfullversion-$osarch/repodata/*
+
+		# S3 does not allow symlinks, so we have to sync the packages once again to the OS major version directory if this is the latest version of the OS:
+		if [ "$osislatest" == 1 ]
+		then
+			aws s3 sync $EXTRAS_SRPM_DIR $awssrpmurl/srpms/extras/$osdistro/$os-$osarch --exclude "*.html" --exclude "repodata"
+			aws s3 sync --delete $EXTRAS_SRPM_DIR/repodata/ $awssrpmurl/srpms/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+			aws s3 sync $EXTRAS_DEBUG_RPM_DIR $awsdebuginfourl/debug/extras/$osdistro/$os-$osarch/ --exclude "*.html" --exclude "repodata"
+			aws s3 sync --delete $EXTRAS_DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/debug/extras/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+			# Invalidate the caches:
+			aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/extras/$osdistro/$os-$osarch/repodata/*
+			aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /debug/extras/$osdistro/$os-$osarch/repodata/*
+		fi
 	fi
 
-	echo "${green}=== Extras RPMs sync completed ===${reset}"
+	if [ $TESTING_MODE -eq 1 ]; then
+		echo "${green}=== Extras RPMs sync completed (TESTING MODE) ===${reset}"
+	else
+		echo "${green}=== Extras RPMs sync completed ===${reset}"
+	fi
 }
 
 # Function to sync alpha/beta RPMs
@@ -377,24 +528,17 @@ sync_pg_version() {
 	echo $GPG_PASSWORD | /usr/bin/gpg2 -a --pinentry-mode loopback --detach-sign --batch --yes --passphrase-fd 0 $SRPM_DIR/repodata/repomd.xml
 
 	if [ $TESTING_MODE -eq 1 ]; then
-		# Testing mode: Use legacy rsync to yum.postgresql.org and S3 sync with testing paths
-		# Sync binary RPMs to yum.postgresql.org
-		# rsync --checksum -ave ssh --delete $RPM_DIR/ yumupload@yum.postgresql.org:$sync_base/testing/$packageSyncVersion/$osdistro/$os-$osarch
-
-		# Sync SRPMs to yum.postgresql.org
-		# rsync --checksum -ave ssh --delete $SRPM_DIR/ yumupload@yum.postgresql.org:$sync_base/srpms/testing/$packageSyncVersion/$osdistro/$os-$osarch
-
 		# Sync SRPMs to S3 bucket:
-		aws s3 sync $SRPM_DIR $awssrpmurl/srpms/testing/$packageSyncVersion/$osdistro/$os-$osarch --exclude "*.html" --exclude "repodata"
-		aws s3 sync --delete $SRPM_DIR/repodata/ $awssrpmurl/srpms/testing/$packageSyncVersion/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+		aws s3 sync $SRPM_DIR $awssrpmurl/srpms/testing/$packageSyncVersion/$osdistro/$osfullversion-$osarch --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $SRPM_DIR/repodata/ $awssrpmurl/srpms/testing/$packageSyncVersion/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
 
 		# Sync debug* RPMs to S3 bucket:
-		aws s3 sync $DEBUG_RPM_DIR $awsdebuginfourl/testing/debug/$packageSyncVersion/$osdistro/$os-$osarch/ --exclude "*.html" --exclude "repodata"
-		aws s3 sync --delete $DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/testing/debug/$packageSyncVersion/$osdistro/$os-$osarch/repodata/ --exclude "*.html"
+		aws s3 sync $DEBUG_RPM_DIR $awsdebuginfourl/testing/debug/$packageSyncVersion/$osdistro/$osfullversion-$osarch/ --exclude "*.html" --exclude "repodata"
+		aws s3 sync --delete $DEBUG_RPM_DIR/repodata/ $awsdebuginfourl/testing/debug/$packageSyncVersion/$osdistro/$osfullversion-$osarch/repodata/ --exclude "*.html"
 
 		# Invalidate the caches:
-		aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/testing/$packageSyncVersion/$osdistro/$os-$osarch/repodata/*
-		aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /testing/debug/$packageSyncVersion/$osdistro/$os-$osarch/repodata/*
+		aws cloudfront create-invalidation --distribution-id $CF_SRPM_DISTRO_ID --path /srpms/testing/$packageSyncVersion/$osdistro/$osfullversion-$osarch/repodata/*
+		aws cloudfront create-invalidation --distribution-id $CF_DEBUG_DISTRO_ID --path /testing/debug/$packageSyncVersion/$osdistro/$osfullversion-$osarch/repodata/*
 	else
 		# Production mode: Use standard S3 sync with CloudFront invalidation
 		# Sync SRPMs to S3 bucket:
@@ -474,13 +618,16 @@ declare -a versions_to_sync=()
 # Handle special case: "all"
 if [ "$SYNC_TARGETS" == "all" ]; then
 	if [ $TESTING_MODE -eq 1 ]; then
-		echo "${green}Starting sync: All PostgreSQL testing versions${reset}"
+		echo "${green}Starting sync: Common + All PostgreSQL testing versions${reset}"
+		preflight_signature_check common ${VERSIONS_ARRAY[@]}
+		sync_common
 		for version in ${VERSIONS_ARRAY[@]}
 		do
 			sync_pg_version $version
 		done
 	else
 		echo "${green}Starting sync: Common + Extras + All PostgreSQL versions${reset}"
+		preflight_signature_check common extras ${VERSIONS_ARRAY[@]}
 		sync_common
 		sync_extras
 		for version in ${VERSIONS_ARRAY[@]}
@@ -530,6 +677,15 @@ else
 				;;
 		esac
 	done
+
+	# Make sure that everything to be synced is signed, before syncing anything:
+	declare -a preflight_targets=()
+	[ $sync_common_flag -eq 1 ] && preflight_targets+=(common)
+	[ $sync_extras_flag -eq 1 ] && preflight_targets+=(extras)
+	[ $sync_alpha_flag -eq 1 ] && preflight_targets+=(alpha)
+	[ $sync_beta_flag -eq 1 ] && preflight_targets+=(beta)
+	preflight_targets+=("${versions_to_sync[@]}")
+	preflight_signature_check "${preflight_targets[@]}"
 
 	# Execute syncs
 	if [ $sync_common_flag -eq 1 ]; then

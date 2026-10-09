@@ -1,38 +1,44 @@
 %global modname py_consul
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
-%global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
 %endif
+%if 0%{?amzn} == 2023
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
+%endif
 %if 0%{?suse_version} == 1500
-%global	__ospython %{_bindir}/python3.11
 %global	python3_pkgversion 311
 %endif
 %if 0%{?suse_version} == 1600
-%global	__ospython %{_bindir}/python3.13
 %global	python3_pkgversion 313
 %endif
 
-%{expand: %%global pybasever %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%global pgdg_python3_sitelib %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('purelib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
-
 Name:		py-consul
-Version:	1.6.0
-Release:	45PGDG%{?dist}
+Version:	1.7.1
+Release:	46PGDG%{?dist}
 Summary:	Python client for Consul
 License:	MIT
 URL:		https://github.com/criteo/%{name}
 Source0:	https://github.com/criteo/%{name}/archive/refs/tags/v%{version}.tar.gz
 
+%if 0%{?suse_version} >= 1500
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+# python%%{python3_pkgversion}-devel is what pulls python3-rpm-generators
+# into the buildroot on RHEL/Fedora; pyproject-rpm-macros alone does not.
+# Without it, neither python(abi) nor python%%{python3_pkgversion}dist(...)
+# get generated. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/228
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
 BuildRequires:	python%{python3_pkgversion}-setuptools
+%endif
 
 BuildArch:	noarch
 
@@ -46,10 +52,10 @@ Python client for Consul
 %setup -q -n %{name}-%{version}
 
 %build
-%{__ospython} setup.py build
+%pyproject_wheel
 
 %install
-%{__ospython} setup.py install --no-compile --root %{buildroot}
+%pyproject_install
 
 %{__rm} -rf %{buildroot}%{python3_sitelib}/docs
 %{__rm} -f %{buildroot}/usr/*requirements*
@@ -58,22 +64,50 @@ Python client for Consul
 %defattr(-,root,root,-)
 %doc README.md
 %license LICENSE
-%{pgdg_python3_sitelib}/%{modname}-%{version}-py%{pybasever}.egg-info/*
-%{pgdg_python3_sitelib}/consul/*.py*
-%{pgdg_python3_sitelib}/consul/api/*.py*
-%{pgdg_python3_sitelib}/consul/api/acl/*.py*
+%{python3_sitelib}/%{modname}-%{version}.dist-info/
+%{python3_sitelib}/consul/*.py*
+%{python3_sitelib}/consul/api/*.py*
+%{python3_sitelib}/consul/api/acl/*.py*
 %if 0%{?suse_version} == 1500
-%{pgdg_python3_sitelib}/docs/*.py
+%{python3_sitelib}/docs/*.py
 %endif
 %if 0%{?rhel} || 0%{?fedora}
-%{pgdg_python3_sitelib}/consul/__pycache__/*.py*
-%{pgdg_python3_sitelib}/consul/api/__pycache__/*.py*
-%{pgdg_python3_sitelib}/consul/api/acl/__pycache__/*.py*
+%{python3_sitelib}/consul/__pycache__/*.py*
+%{python3_sitelib}/consul/api/__pycache__/*.py*
+%{python3_sitelib}/consul/api/acl/__pycache__/*.py*
 %endif
 
 %changelog
-* Thu Oct 16 2025 Devrim Gunduz <devrim@gunduz.org> - 1.6.0-45PGDG
-- Add SLES 16 support
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-46PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-45PGDG
+- Add back python%{python3_pkgversion}-devel as a BuildRequires on the
+  non-SLES branch. The switch to pyproject builds in 1.7.1-42PGDG dropped
+  it (and python3-setuptools) in favor of pyproject-rpm-macros alone, but
+  pyproject-rpm-macros does not pull in python3-rpm-generators the way
+  -devel does, so the build was about to silently lose python(abi) and
+  the python3Xdist(...) auto-Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-44PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-43PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Wed Aug 12 2026 Devrim Gunduz <devrim@gunduz.org> - 1.7.1-42PGDG
+- Update to 1.7.1 per changes described at:
+  https://github.com/criteo/py-consul/releases/tag/v1.7.1
+  https://github.com/criteo/py-consul/releases/tag/v1.7.0
+  https://github.com/criteo/py-consul/releases/tag/v1.6.1
+- Switch to pyproject builds
+- Add Fedora 45 support
 
 * Mon Sep 22 2025 Devrim Gunduz <devrim@gunduz.org> - 1.6.0-44PGDG.1
 - Add Fedora 43 support

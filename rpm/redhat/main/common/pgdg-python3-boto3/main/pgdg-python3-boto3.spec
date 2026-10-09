@@ -1,20 +1,20 @@
 %global modname boto3
 
 %if 0%{?fedora} && 0%{?fedora} == 44
-%global __ospython %{_bindir}/python3.15
-%global python3_pkgversion 3.15
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
 %endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -29,8 +29,8 @@
 %global python3_sitelib %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('purelib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 Name:		python%{python3_pkgversion}-%{modname}
-Version:	1.38.19
-Release:	3PGDG%{?dist}
+Version:	1.43.83
+Release:	2PGDG%{?dist}
 Summary:	The AWS SDK for Python
 
 License:	Apache-2.0
@@ -39,6 +39,7 @@ Source:		%{url}/archive/%{version}/%{modname}-%{version}.tar.gz
 BuildArch:	noarch
 
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-setuptools
 
 # Save space by hardlinking duplicate JSON resource files
 BuildRequires:	hardlink
@@ -58,6 +59,12 @@ services like Amazon S3 and Amazon EC2.}
 
 %install
 %{__ospython} setup.py install --no-compile --root %{buildroot}
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitelib}/%{modname}
+%endif
 
 
 # This saves, as of this writing, roughly 300kB in duplicate JSON resource
@@ -70,7 +77,7 @@ hardlink -c '%{buildroot}%{python3_sitelib}/%{modname}'
 %doc CHANGELOG.rst
 %doc README.rst
 %license LICENSE
-%{python3_sitelib}/%{modname}-%{version}-py%{pybasever}.egg-info/*
+%{python3_sitelib}/%{modname}-%{version}-py%{pybasever}.egg-info/
 %{python3_sitelib}/%{modname}/*.py*
 %{python3_sitelib}/%{modname}/__pycache__/*.py*
 %{python3_sitelib}/%{modname}/data/*
@@ -87,6 +94,32 @@ hardlink -c '%{buildroot}%{python3_sitelib}/%{modname}'
 %{python3_sitelib}/%{modname}/s3/__pycache__/*
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.43.83-2PGDG
+- Remove Fedora <= 42 support
+- Fix Fedora 44 mapped to python3.15 instead of python3.14
+- Add missing BR (python3-setuptools)
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 1.43.83-1PGDG
+- Update to 1.43.83 per changes described at:
+  https://pypi.org/project/boto3/1.43.83/
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.38.19-6PGDG
+- Package the .egg-info directory itself instead of globbing only its
+  contents (egg-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .egg-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.38.19-5PGDG
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated and
+  the build failed with a missing-file error.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.38.19-4PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Mon Feb 23 2026 Devrim Gunduz <devrim@gunduz.org> - 1.38.19-3PGDG
 - Add Fedora 44 and SLES 16 support. Need it for an internal sync script
   on SLES 16.

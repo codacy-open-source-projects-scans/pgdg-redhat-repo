@@ -1,6 +1,6 @@
 Name:		pgdg-redhat-repo
 Version:	42.0
-Release:	65.rhel%{dist}PGDG
+Release:	70.rhel%{dist}PGDG
 Summary:	PostgreSQL PGDG RPMs - Yum Repository Configuration for Red Hat / Rocky Linux / AlmaLinux
 License:	PostgreSQL
 URL:		https://yum.postgresql.org
@@ -43,6 +43,39 @@ Rocky Linux, AlmaLinux and also the GPG key for PGDG RPMs.
 %{__install} -pm 644 %{SOURCE2} \
 	%{buildroot}%{_sysconfdir}/yum.repos.d/pgdg-redhat-all.repo
 
+%post
+# 42.0-63 to 42.0-67 shipped repo files tied to one OS minor version
+# (rhel-9.8-$basearch, etc.). If the admin changed that file, rpm kept it
+# (%%config(noreplace)), so point it to the dnf variables, keeping the other
+# changes. The new file is still available as pgdg-redhat-all.repo.rpmnew.
+if [ $1 -gt 1 ] && [ -f %{_sysconfdir}/yum.repos.d/pgdg-redhat-all.repo ] && \
+	grep -Eq 'rhel-(9|10)\.[0-9]+-\$basearch' %{_sysconfdir}/yum.repos.d/pgdg-redhat-all.repo; then
+	sed -i -E \
+		-e 's#rhel-(9|10)\.[0-9]+-\$basearch#rhel-$releasever_major.$releasever_minor-$basearch#g' \
+		-e 's#AlmaLinux (9|10)\.[0-9]+( |$)#AlmaLinux $releasever_major.$releasever_minor\2#g' \
+		%{_sysconfdir}/yum.repos.d/pgdg-redhat-all.repo
+fi
+
+# dnf in EL 9.6 (4.14.0-25) and older does not set $releasever_major and
+# $releasever_minor, so the repo file URLs are not expanded and return 404.
+# For such dnf versions, set them from the OS release. dnf in EL 9.7 and later
+# (and in all EL 10 releases) detects them itself and ignores these files, so
+# the repos still follow later OS minor version updates.
+. /etc/os-release
+case "${VERSION_ID}" in
+	8*|*[!0-9.]*|"") ;;
+	*.*)
+		if ! /usr/libexec/platform-python -c 'import dnf.rpm; dnf.rpm.detect_releasevers' >/dev/null 2>&1; then
+			%{__mkdir} -p %{_sysconfdir}/dnf/vars
+			[ -e %{_sysconfdir}/dnf/vars/releasever_major ] || \
+				echo "${VERSION_ID%%%%.*}" > %{_sysconfdir}/dnf/vars/releasever_major
+			[ -e %{_sysconfdir}/dnf/vars/releasever_minor ] || \
+				echo "${VERSION_ID#*.}" > %{_sysconfdir}/dnf/vars/releasever_minor
+		fi
+		;;
+esac
+exit 0
+
 %files
 %defattr(-,root,root,-)
 %config(noreplace) %{_sysconfdir}/yum.repos.d/*
@@ -50,6 +83,33 @@ Rocky Linux, AlmaLinux and also the GPG key for PGDG RPMs.
 %{_sysconfdir}/pki/rpm-gpg/*
 
 %changelog
+* Mon Sep 28 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-70PGDG
+- Fix the pinning advice in the RHEL / Rocky Linux / AlmaLinux 9 and 10 repo
+  file comments.
+- dnf in EL 9.6 does not set $releasever_major and $releasever_minor, so the
+  42.0-69 repo file URLs returned 404 there. Set them in /etc/dnf/vars from
+  the OS release when the installed dnf cannot detect them. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/215
+
+* Sat Sep 26 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-69PGDG
+- Build one repo RPM per OS major version, and use
+  $releasever_major.$releasever_minor in the RHEL / Rocky Linux / AlmaLinux 9
+  and 10 repo files, so that the repos follow OS minor version updates.
+  Per minor version repo RPMs used to replace the major version one and then
+  stayed on that minor version forever. Also update locally modified repo
+  files that point to a minor version. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/215
+
+* Tue Sep 22 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-68PGDG
+- Set priority=1 on RHEL 10 repos to prefer PGDG over AppStream
+
+* Fri Jul 17 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-67PGDG
+- Rebuild on 9.8 - ppc64le because of a local config issue.
+
+* Thu Jul 2 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-66PGDG
+- Introduce PostgreSQL 20 testing repos (except RHEL 8)
+- Introduce extras-testing repos
+
 * Sun Feb 22 2026 Devrim Gündüz <devrim@gunduz.org> - 42.0-65PGDG
 - Enable gpgheck on all repos (in this case it is 19 testing repos)
   Per https://redmine.postgresql.org/issues/7897 .

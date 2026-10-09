@@ -1,17 +1,34 @@
 %global sname	pg_incremental
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 
 Summary:	Incremental Data Processing in PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
-Version:	1.0.0
-Release:	3PGDG%{?dist}
+Version:	1.5.0
+Release:	2PGDG%{?dist}
 License:	PostgreSQL
 Group:		Applications/Databases
 URL:		https://github.com/CrunchyData/%{sname}
 Source0:	https://github.com/CrunchyData/%{sname}/archive/refs/tags/v%{version}.tar.gz
 BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server pg_cron_%{pgmajorversion}
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+BuildRequires:	pg_cron_%{pgmajorversion}
+%endif
 
 %description
 pg_incremental is a simple extension that helps you do fast, reliable,
@@ -29,7 +46,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -42,16 +63,26 @@ This package provides JIT support for pg_incremental
 %setup -q -n %{sname}-%{version}
 
 %build
-%{__make} PG_CONFIG=%{pginstdir}/bin/pg_config USE_PGXS=1 %{?_smp_mflags}
+%{__make} PG_CONFIG=%{pginstdir}/bin/pg_config USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-%{__make} PG_CONFIG=%{pginstdir}/bin/pg_config USE_PGXS=1 %{?_smp_mflags} DESTDIR=%{buildroot} install
+%{__make} PG_CONFIG=%{pginstdir}/bin/pg_config USE_PGXS=1 %{?_smp_mflags} %{with_llvm_arg} DESTDIR=%{buildroot} install
 %{__mkdir} -p %{buildroot}%{pginstdir}/doc/extension
 %{__mv} README.md %{buildroot}%{pginstdir}/doc/extension/README-%{sname}.md
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
+
+%check
+%if %runselftest
+# pg_incremental needs pg_cron, which has to be preloaded and can only be
+# created in cron.database_name.
+%pgdg_check_init
+pgdg_check_start main "shared_preload_libraries = 'pg_cron'" \
+	"cron.database_name = 'contrib_regression'"
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %doc %{pginstdir}/doc/extension/README-%{sname}.md
@@ -68,6 +99,31 @@ This package provides JIT support for pg_incremental
 %endif
 
 %changelog
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 1.5.0-2PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 1.5.0-1PGDG
+- Update to 1.5.0 per changes described at:
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.5.0
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.4.1
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.3.0
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.2.0
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.1.1
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.1.0
+  https://github.com/CrunchyData/pg_incremental/releases/tag/v1.0.1
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-4PGDG
+- Add Amazon Linux 2023 support.
+
 * Tue Oct 7 2025 Devrim Gündüz <devrim@gunduz.org> - 1.0.0-3PGDG
 - Add SLES 16 support
 

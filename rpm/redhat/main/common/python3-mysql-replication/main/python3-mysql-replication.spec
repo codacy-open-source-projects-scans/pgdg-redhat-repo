@@ -1,20 +1,21 @@
 %global sname	mysql-replication
 
-%if 0%{?fedora} && 0%{?fedora} == 44
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
 %endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
+%if 0%{?fedora} && 0%{?fedora} <= 44
+%global	__ospython %{_bindir}/python3.14
+%global	python3_pkgversion 3.14
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -26,8 +27,8 @@
 %endif
 
 Name:		python%{python3_pkgversion}-%{sname}
-Version:	1.0.15
-Release:	2PGDG%{?dist}
+Version:	1.0.17
+Release:	3PGDG%{?dist}
 Summary:	Pure Python Implementation of MySQL replication protocol build on top of PyMYSQL
 License:	Apache-2.0
 URL:		https://github.com/noplay/python-%{sname}
@@ -40,7 +41,15 @@ Provides:	python3-%{sname}
 BuildRequires:	python-rpm-macros
 %else
 BuildRequires:	pyproject-rpm-macros
+# python%%{python3_pkgversion}-devel is what pulls python3-rpm-generators
+# into the buildroot on RHEL/Fedora; pyproject-rpm-macros alone does not.
+# Without it, neither python(abi) nor python%%{python3_pkgversion}dist(...)
+# get generated. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+BuildRequires:	python%{python3_pkgversion}-devel
 %endif
+
+BuildRequires:	python%{python3_pkgversion}-pip python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-wheel
 
 Requires:	python%{python3_pkgversion}-PyMySQL
 
@@ -65,7 +74,7 @@ their datas and raw SQL queries.
 %pyproject_install
 
 %files
-%{python3_sitelib}/mysql_replication-%{version}.dist-info/*
+%{python3_sitelib}/mysql_replication-%{version}.dist-info/
 %{python3_sitelib}/pymysqlreplication/*.py*
 %{python3_sitelib}/pymysqlreplication/__pycache__/*.py*
 %{python3_sitelib}/pymysqlreplication/constants/*.py*
@@ -76,6 +85,42 @@ their datas and raw SQL queries.
 %{python3_sitelib}/pymysqlreplication/util/__pycache__/*.py*
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.17-2PGDG
+- Fix Fedora 44 pinned to python3.13 instead of python3.14
+- Add missing BR (python3-setuptools)
+- Remove Fedora <= 42 support
+- Fix Fedora 43 Python version
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.17-1PGDG
+- Update to 1.0.17 per changes described at:
+  https://github.com/noplay/python-mysql-replication/releases/tag/1.0.17
+  https://github.com/noplay/python-mysql-replication/releases/tag/1.0.16
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.15-6PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+- Add back python%{python3_pkgversion}-devel as a BuildRequires on the
+  non-SLES branch, needed to pull python3-rpm-generators into the
+  buildroot for this pyproject build. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.15-5PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.15-4PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.15-3PGDG
+- Add missing BRs
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.15-2PGDG
 - Use Python 3.14 on Fedora 44. Many BRs and Requires are not ready
   for 3.15.

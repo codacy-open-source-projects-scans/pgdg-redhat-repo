@@ -1,11 +1,12 @@
 %global		_vpath_builddir .
 %global		libpqxxmajorver 8.0
+%{!?runselftest:%global runselftest 0}
 
 Name:		libpqxx
 Summary:	C++ client API for PostgreSQL
 Epoch:		1
-Version:	%{libpqxxmajorver}.1
-Release:	42PGDG%{?dist}
+Version:	%{libpqxxmajorver}.2
+Release:	46PGDG%{?dist}
 
 License:	BSD
 URL:		https://github.com/jtv/%{name}
@@ -18,6 +19,17 @@ BuildRequires:	pkgconfig
 BuildRequires:	libpq5-devel
 BuildRequires:	graphviz
 BuildRequires:	xmlto
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
+
+%if 0%{?rhel} == 9
+BuildRequires:	gcc-toolset-15 gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ gcc-toolset-15-gcc-plugin-annobin
+%endif
+
+%if 0%{?amzn} == 2023
+BuildRequires:	gcc14 gcc14-c++
+%endif
 
 %description
 C++ client API for PostgreSQL. The standard front-end (in the sense of
@@ -41,6 +53,14 @@ BuildArch:	noarch
 %forgeautosetup
 
 %build
+%if 0%{?rhel} == 9
+export PATH=/opt/rh/gcc-toolset-15/root/usr/bin/:$PATH
+%endif
+%if 0%{?amzn} == 2023
+export CC=/usr/bin/gcc14-gcc
+export CXX=/usr/bin/gcc14-g++
+%undefine _annotated_build
+%endif
 mkdir build
 pushd build
 %cmake -G Ninja	..
@@ -48,9 +68,29 @@ pushd build
 popd
 
 %install
+%if 0%{?rhel} == 9
+export PATH=/opt/rh/gcc-toolset-15/root/usr/bin/:$PATH
+%endif
+%if 0%{?amzn} == 2023
+export CC=/usr/bin/gcc14-gcc
+export CXX=/usr/bin/gcc14-g++
+%endif
 pushd build
 %ninja_install
 popd
+
+%check
+%if %runselftest
+# The test runner connects to the server with the libpq environment
+# variables, which the %%check helpers set up. Some tests need a UTF8
+# database, so do not let initdb fall back to SQL_ASCII.
+export LC_ALL=C.UTF-8
+%pgdg_check_init
+pgdg_check_start main
+# Run the runner itself: the top level CMakeLists.txt does not enable
+# testing, so ctest finds no tests.
+build/test/runner
+%endif
 
 %files
 %doc AUTHORS NEWS README.md VERSION
@@ -72,6 +112,25 @@ popd
 %{_docdir}/%{name}/*.md
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.2-46PGDG
+- Add %%check, running the upstream tests with the %%check helpers from
+  pgdg-srpm-macros 2.0.0. It is disabled by default; enable it with
+  --define 'runselftest 1'.
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.2-45PGDG
+- Bump up Release: which I forgot in d68dbc3
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.2-44PGDG
+- Add Amazon Linux 2023 support.
+
+* Mon Jul 20 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.2-42PGDG
+- Update to 8.0.2 per changes described at
+  https://github.com/jtv/libpqxx/releases/tag/8.0.2
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.1-43PGDG
+- libpqxx requires C++20, so add RHEL 9 support by using GCC 15 to
+  build the package.
+
 * Tue Apr 7 2026 Devrim Gündüz <devrim@gunduz.org> - 1:8.0.1-42PGDG
 - Update to 8.0.1 per changes described at
   https://github.com/jtv/libpqxx/releases/tag/8.0.1

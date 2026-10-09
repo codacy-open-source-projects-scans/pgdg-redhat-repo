@@ -58,13 +58,13 @@
 
 Summary:	PostgreSQL client programs and libraries
 Name:		%{sname}%{pgmajorversion}
-Version:	16.13
+Version:	16.15
 %if 0%{?suse_version} >= 1315
 # SuSE upstream packages have release numbers like 150200.5.19.1
 # which overrides our packages. Increase our release number on SuSE.
-Release:	420003PGDG%{?dist}
+Release:	420005PGDG%{?dist}
 %else
-Release:	3PGDG%{?dist}
+Release:	6PGDG%{?dist}
 %endif
 License:	PostgreSQL
 Url:		https://www.postgresql.org/
@@ -88,15 +88,12 @@ Source19:	%{sname}-%{pgmajorversion}-tmpfiles.d
 %if %sysuserd
 Source20:	%{sname}-%{pgmajorversion}-sysusers.conf
 %endif
+Source21:	%{sname}-%{pgmajorversion}-sshd-selinux.te
 
 Patch1:		%{sname}-%{pgmajorversion}-rpm-pgsql.patch
 Patch3:		%{sname}-%{pgmajorversion}-conf.patch
 Patch5:		%{sname}-%{pgmajorversion}-var-run-socket.patch
 Patch6:		%{sname}-%{pgmajorversion}-perl-rpath.patch
-%if 0%{?fedora} == 44
-# To be removed in 16.14:
-Patch7:		%{sname}-%{pgmajorversion}-16.13-llvm22.patch
-%endif
 
 BuildRequires:	perl glibc-devel bison flex >= 2.5.31
 BuildRequires:	gcc-c++
@@ -142,7 +139,10 @@ BuildRequires:	llvm17-devel clang17-devel
 %if 0%{?suse_version} == 1600
 BuildRequires:	llvm19-devel clang19-devel
 %endif
-%if 0%{?fedora} || 0%{?rhel}
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 %endif
 %endif
@@ -198,6 +198,11 @@ BuildRequires:	selinux-policy >= 3.9.13
 %if 0%{?rhel} || 0%{?fedora}
 BuildRequires:	selinux-policy >= 3.9.13
 %endif
+# EL-10 and Fedora >= 44 ship a local policy module to work around a
+# search/read denial for sshd_session_t on postgresql_db_t (see %post server):
+%if 0%{?rhel} >= 10 || 0%{?fedora} >= 44
+BuildRequires:	selinux-policy-devel
+%endif
 %endif
 
 %if %ssl
@@ -207,10 +212,10 @@ BuildRequires:	libopenssl-devel
 %if 0%{?suse_version} >= 1500
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 BuildRequires:	openssl-devel
 %endif
-%if 0%{?fedora} >= 41
+%if 0%{?fedora} && 0%{?fedora} <= 44 && !0%{?amzn}
 BuildRequires:	openssl-devel-engine
 %endif
 %endif
@@ -272,7 +277,7 @@ Requires:	libopenssl3
 %if 0%{?suse_version} == 1600
 Requires:	libopenssl3
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 %endif
 
@@ -341,21 +346,33 @@ Requires:	%{name}%{?_isa} = %{version}-%{release}
 Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
 
 %if %llvm
-Requires:	%{name}%{?_isa} = %{version}-%{release}
 %if 0%{?suse_version} == 1500
 Requires:	llvm17-devel clang17-devel
 %endif
 %if 0%{?suse_version} == 1600
 Requires:	llvm19-devel clang19-devel
 %endif
-%if 0%{?fedora} || 0%{?rhel}
-Requires:	llvm-devel >= 19.0 clang-devel >= 19.0
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 %endif
 %endif
 
 %if %icu
 Requires:	libicu-devel
 %endif
+
+%package static
+Summary:	Statically linked PostgreSQL libraries
+Requires:	%{name}-devel%{?_isa} = %{version}-%{release}
+Provides:	%{name}-static = %{version}-%{release}
+Provides:	%{name}-static%{?_isa} = %{version}-%{release}
+
+%description static
+Statically linked PostgreSQL libraries that do not have dynamically linked
+counterparts.
 
 %if %enabletaptests
 %if 0%{?suse_version} && 0%{?suse_version} >= 1315
@@ -392,7 +409,10 @@ Requires:	libLLVM17
 %if 0%{?suse_version} == 1600
 Requires:	libLLVM19
 %endif
-%if 0%{?fedora} || 0%{?rhel}
+%if 0%{?amzn}
+Requires:	llvm >= 15
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} ) && !0%{?amzn}
 Requires:	llvm >= 19
 %endif
 
@@ -474,9 +494,6 @@ benchmarks.
 %patch -P 3 -p0
 %patch -P 5 -p0
 %patch -P 6 -p0
-%if 0%{?fedora} == 44
-%patch -P 7 -p1
-%endif
 
 %{__cp} -p %{SOURCE12} .
 
@@ -594,38 +611,6 @@ MAKELEVEL=0 %{__make} %{?_smp_mflags} all
 %endif
 
 
-# run_testsuite WHERE
-# -------------------
-# Run 'make check' in WHERE path. When that command fails, return the logs
-# given by PostgreSQL build system and set 'test_failure=1'.
-
-run_testsuite()
-{
-	%{__make} -C "$1" MAX_CONNECTIONS=5 check && return 0
-
-	test_failure=1
-
-	(
-		set +x
-		echo "=== trying to find all regression.diffs files in build directory ==="
-		find -name 'regression.diffs' | \
-		while read line; do
-			echo "=== make failure: $line ==="
-			cat "$line"
-		done
-	)
-}
-
-%if %runselftest
-	run_testsuite "src/test/regress"
-	%{__make} clean -C "src/test/regress"
-	run_testsuite "src/pl"
-%if %plpython3
-	run_testsuite "src/pl/plpython"
-%endif
-	run_testsuite "contrib"
-%endif
-
 %if %test
 	pushd src/test/regress
 	%{__make} all
@@ -644,7 +629,7 @@ run_testsuite()
 	popd
 %endif
 
-%{__mkdir} -p %{buildroot}%{pgbaseinstdir}/share/extensions/
+%{__mkdir} -p %{buildroot}%{pgbaseinstdir}/share/extension/
 %{__make} -C contrib DESTDIR=%{buildroot} install
 %if %uuid
 %{__make} -C contrib/uuid-ossp DESTDIR=%{buildroot} install
@@ -705,7 +690,7 @@ touch -r %{SOURCE10} %{sname}-%{pgmajorversion}-check-db-dir
 %{__install} -d -m 700 %{buildroot}/var/lib/pgsql/%{pgmajorversion}/backups
 
 # Create the multiple PostgreSQL version startup directory
-%{__install} -d -m 700 %{buildroot}/etc/sysconfig/pgsql/%{pgmajorversion}
+%{__install} -d -m 700 %{buildroot}/etc/sysconfig/pgsql/
 
 # Install linker conf file under postgresql installation directory.
 # We will install the latest version via alternatives.
@@ -715,6 +700,17 @@ touch -r %{SOURCE10} %{sname}-%{pgmajorversion}-check-db-dir
 %if %sysuserd
 # Install sysusers.d config file to allow rpm to create users/groups automatically.
 %{__install} -m 0644 -D %{SOURCE20} %{buildroot}%{_sysusersdir}/%{sname}%{pgpackageversion}-pgdg.conf
+%endif
+
+%if %selinux && (0%{?rhel} >= 10 || 0%{?fedora} >= 44)
+# Build and install the local SELinux policy module that lets sshd_session_t
+# search/read the postgres user's home dir (postgresql_db_t), needed for
+# ~/.ssh/authorized_keys pubkey auth to work under EL-10/Fedora 44+'s
+# SELinux policy.
+checkmodule -M -m -o postgresql%{pgmajorversion}_sshd_fix.mod %{SOURCE21}
+semodule_package -o postgresql%{pgmajorversion}_sshd_fix.pp -m postgresql%{pgmajorversion}_sshd_fix.mod
+%{__install} -d -m 755 %{buildroot}%{_datadir}/selinux/packages
+%{__install} -m 644 postgresql%{pgmajorversion}_sshd_fix.pp %{buildroot}%{_datadir}/selinux/packages/
 %endif
 
 %if %test
@@ -754,9 +750,6 @@ touch -r %{SOURCE10} %{sname}-%{pgmajorversion}-check-db-dir
 %{__mkdir} -p %{buildroot}%{pgbaseinstdir}/share/man/
 %{__mv} doc/src/sgml/man1 doc/src/sgml/man3 doc/src/sgml/man7 %{buildroot}%{pgbaseinstdir}/share/man/
 %{__rm} -rf %{buildroot}%{_docdir}/pgsql
-
-# These file(s) should not be packaged:
-%{__rm} %{buildroot}%{pgbaseinstdir}/lib/libpgfeutils.a
 
 # initialize file lists
 %{__cp} /dev/null main.lst
@@ -809,9 +802,59 @@ cat pltcl-%{pgmajorversion}.lang > pg_pltcl.lst
 
 cat pg_amcheck-%{pgmajorversion}.lang > pg_contrib.lst
 cat libpq5-%{pgmajorversion}.lang > pg_libpq5.lst
+
+# find_lang lists only the .mo files; own the locale directory tree, too.
+# -libs is the base of the dependency chain (ecpg's runtime libs live there
+# too, but its own .mo files are shipped in -devel; -devel Requires -libs).
+find %{buildroot}%{pgbaseinstdir}/share/locale -type d | sed "s|^%{buildroot}|%%dir |" > pg_localedirs.lst
+cat pg_localedirs.lst >> pg_libpq5.lst
 cat pg_config-%{pgmajorversion}.lang ecpg-%{pgmajorversion}.lang ecpglib6-%{pgmajorversion}.lang > pg_devel.lst
 cat initdb-%{pgmajorversion}.lang pg_ctl-%{pgmajorversion}.lang psql-%{pgmajorversion}.lang pg_dump-%{pgmajorversion}.lang pg_basebackup-%{pgmajorversion}.lang pgscripts-%{pgmajorversion}.lang > pg_main.lst
 cat postgres-%{pgmajorversion}.lang pg_resetwal-%{pgmajorversion}.lang pg_checksums-%{pgmajorversion}.lang pg_verifybackup-%{pgmajorversion}.lang pg_controldata-%{pgmajorversion}.lang plpgsql-%{pgmajorversion}.lang pg_test_timing-%{pgmajorversion}.lang pg_test_fsync-%{pgmajorversion}.lang pg_archivecleanup-%{pgmajorversion}.lang pg_waldump-%{pgmajorversion}.lang pg_rewind-%{pgmajorversion}.lang pg_upgrade-%{pgmajorversion}.lang > pg_server.lst
+%endif
+
+%check
+%if %runselftest
+# run_testsuite WHERE
+# -------------------
+# Run 'make check' in WHERE path. When that command fails, print the logs
+# given by PostgreSQL build system and set 'test_failure=1', so that the
+# other test suites still run before the build fails.
+
+test_failure=0
+
+# Our postgresql.conf.sample enables the logging collector, but the TAP tests
+# read the server log from the file that pg_ctl writes. Turn it off for the
+# test instances.
+echo "logging_collector = off" > pgdg_test.conf
+export TEMP_CONFIG="$PWD/pgdg_test.conf"
+
+run_testsuite()
+{
+	%{__make} -C "$1" MAX_CONNECTIONS=5 check && return 0
+
+	test_failure=1
+
+	(
+		set +x
+		echo "=== trying to find all regression.diffs files in build directory ==="
+		find -name 'regression.diffs' | \
+		while read line; do
+			echo "=== make failure: $line ==="
+			cat "$line"
+		done
+	)
+}
+
+	run_testsuite "src/test/regress"
+	# src/pl includes PL/pgSQL, PL/Perl, PL/Python and PL/Tcl
+	run_testsuite "src/pl"
+	run_testsuite "contrib"
+
+	if [ $test_failure -ne 0 ]; then
+		echo "=== regression tests failed, see above ==="
+		exit 1
+	fi
 %endif
 
 %pre server
@@ -830,13 +873,7 @@ useradd -M -g postgres -o -r -d /var/lib/pgsql -s /bin/bash \
 /sbin/ldconfig
 if [ $1 -eq 1 ] ; then
    /bin/systemctl daemon-reload >/dev/null 2>&1 || :
-   %if 0%{?suse_version}
-   %if 0%{?suse_version} >= 1315
-   %service_add_pre postgresql-%{pgpackageversion}.service
-   %endif
-   %else
    %systemd_post %{sname}-%{pgpackageversion}.service
-   %endif
 fi
 
 # postgres' .bash_profile.
@@ -852,6 +889,11 @@ export PGDATA
 chown postgres: /var/lib/pgsql/.bash_profile
 chmod 700 /var/lib/pgsql/.bash_profile
 
+%if %selinux && (0%{?rhel} >= 10 || 0%{?fedora} >= 44)
+%{_sbindir}/selinuxenabled 2>/dev/null && \
+	%{_sbindir}/semodule -i %{_datadir}/selinux/packages/postgresql%{pgmajorversion}_sshd_fix.pp >/dev/null 2>&1 || :
+%endif
+
 %preun server
 if [ $1 -eq 0 ] ; then
 	# Package removal, not upgrade
@@ -866,6 +908,14 @@ if [ $1 -ge 1 ] ; then
 	# Package upgrade, not uninstall
 	/bin/systemctl try-restart %{sname}-%{pgmajorversion}.service >/dev/null 2>&1 || :
 fi
+
+%if %selinux && (0%{?rhel} >= 10 || 0%{?fedora} >= 44)
+if [ $1 -eq 0 ] ; then
+	# Package removal, not upgrade
+	%{_sbindir}/selinuxenabled 2>/dev/null && \
+		%{_sbindir}/semodule -r postgresql%{pgmajorversion}_sshd_fix >/dev/null 2>&1 || :
+fi
+%endif
 
 # Create alternatives entries for common binaries and man files
 %post
@@ -945,6 +995,9 @@ fi
 # so that extensions can use this dir.
 %dir %{pgbaseinstdir}/lib/bitcode
 %endif
+%dir %{pgbaseinstdir}/bin
+%dir %{pgbaseinstdir}/share/man
+%dir %{pgbaseinstdir}/share/man/man1
 %doc doc/KNOWN_BUGS doc/MISSING_FEATURES
 %doc COPYRIGHT
 %doc README.rpm-dist
@@ -977,12 +1030,14 @@ fi
 %{pgbaseinstdir}/share/man/man1/pg_dump.*
 %{pgbaseinstdir}/share/man/man1/pg_dumpall.*
 %{pgbaseinstdir}/share/man/man1/pg_isready.*
+%{pgbaseinstdir}/share/man/man1/pg_receivewal.*
 %{pgbaseinstdir}/share/man/man1/pg_restore.*
+%{pgbaseinstdir}/share/man/man1/pg_waldump.*
 %{pgbaseinstdir}/share/man/man1/psql.*
 %{pgbaseinstdir}/share/man/man1/reindexdb.*
 %{pgbaseinstdir}/share/man/man1/vacuumdb.*
-%{pgbaseinstdir}/share/man/man3/*
-%{pgbaseinstdir}/share/man/man7/*
+%{pgbaseinstdir}/share/man/man3
+%{pgbaseinstdir}/share/man/man7
 
 %files docs
 %defattr(-,root,root)
@@ -993,6 +1048,8 @@ fi
 
 %files contrib -f pg_contrib.lst
 %defattr(-,root,root)
+%dir %{pgbaseinstdir}/doc
+%dir %{pgbaseinstdir}/doc/extension
 %doc %{pgbaseinstdir}/doc/extension/*.example
 %{pgbaseinstdir}/lib/_int.so
 %{pgbaseinstdir}/lib/adminpack.so
@@ -1052,6 +1109,7 @@ fi
 %endif
 %if %selinux
 %{pgbaseinstdir}/lib/sepgsql.so
+%dir %{pgbaseinstdir}/share/contrib
 %{pgbaseinstdir}/share/contrib/sepgsql.sql
 %endif
 %{pgbaseinstdir}/lib/tablefunc.so
@@ -1136,6 +1194,9 @@ fi
 
 %files libs -f pg_libpq5.lst
 %defattr(-,root,root)
+%dir %{pgbaseinstdir}
+%dir %{pgbaseinstdir}/lib
+%dir %{pgbaseinstdir}/share
 %{pgbaseinstdir}/lib/libpq.so.*
 %{pgbaseinstdir}/lib/libecpg.so*
 %{pgbaseinstdir}/lib/libpgtypes.so.*
@@ -1153,6 +1214,9 @@ fi
 %endif
 %{_tmpfilesdir}/%{sname}-%{pgmajorversion}.conf
 %{_unitdir}/%{sname}-%{pgmajorversion}.service
+%if %selinux && (0%{?rhel} >= 10 || 0%{?fedora} >= 44)
+%{_datadir}/selinux/packages/postgresql%{pgmajorversion}_sshd_fix.pp
+%endif
 %if %pam
 %config(noreplace) /etc/pam.d/%{sname}
 %endif
@@ -1176,20 +1240,19 @@ fi
 %{pgbaseinstdir}/share/man/man1/pg_controldata.*
 %{pgbaseinstdir}/share/man/man1/pg_ctl.*
 %{pgbaseinstdir}/share/man/man1/pg_resetwal.*
-%{pgbaseinstdir}/share/man/man1/pg_receivewal.*
 %{pgbaseinstdir}/share/man/man1/pg_rewind.1
 %{pgbaseinstdir}/share/man/man1/pg_test_fsync.1
 %{pgbaseinstdir}/share/man/man1/pg_test_timing.1
 %{pgbaseinstdir}/share/man/man1/pg_upgrade.1
 %{pgbaseinstdir}/share/man/man1/pg_verifybackup.*
-%{pgbaseinstdir}/share/man/man1/pg_waldump.1
 %{pgbaseinstdir}/share/man/man1/postgres.*
 %{pgbaseinstdir}/share/postgres.bki
 %{pgbaseinstdir}/share/system_constraints.sql
 %{pgbaseinstdir}/share/system_functions.sql
 %{pgbaseinstdir}/share/system_views.sql
 %{pgbaseinstdir}/share/*.sample
-%{pgbaseinstdir}/share/timezonesets/*
+%{pgbaseinstdir}/share/timezonesets
+%dir %{pgbaseinstdir}/share/tsearch_data
 %{pgbaseinstdir}/share/tsearch_data/*.affix
 %{pgbaseinstdir}/share/tsearch_data/*.dict
 %{pgbaseinstdir}/share/tsearch_data/*.ths
@@ -1205,8 +1268,6 @@ fi
 %dir %{pgbaseinstdir}/share/extension
 %{pgbaseinstdir}/share/extension/plpgsql*
 
-%dir %{pgbaseinstdir}/lib
-%dir %{pgbaseinstdir}/share
 %attr(700,postgres,postgres) %dir /var/lib/pgsql
 %attr(700,postgres,postgres) %dir /var/lib/pgsql/%{pgmajorversion}
 %attr(700,postgres,postgres) %dir /var/lib/pgsql/%{pgmajorversion}/data
@@ -1219,7 +1280,7 @@ fi
 
 %files devel -f pg_devel.lst
 %defattr(-,root,root)
-%{pgbaseinstdir}/include/*
+%{pgbaseinstdir}/include
 %{pgbaseinstdir}/bin/ecpg
 %{pgbaseinstdir}/lib/libpq.so
 %{pgbaseinstdir}/lib/libecpg.so
@@ -1233,8 +1294,8 @@ fi
 %{pgbaseinstdir}/lib/libpgport_shlib.a
 %{pgbaseinstdir}/lib/libpgtypes.so
 %{pgbaseinstdir}/lib/libpgtypes.a
-%{pgbaseinstdir}/lib/pgxs/*
-%{pgbaseinstdir}/lib/pkgconfig/*
+%{pgbaseinstdir}/lib/pgxs
+%{pgbaseinstdir}/lib/pkgconfig
 %{pgbaseinstdir}/share/man/man1/ecpg.*
 
 %if %llvm
@@ -1263,10 +1324,14 @@ fi
 
 %if %plpython3
 %files plpython3 -f pg_plpython3.lst
+%defattr(-,root,root)
 %{pgbaseinstdir}/share/extension/plpython3*
 %{pgbaseinstdir}/lib/plpython3.so
 %{pgbaseinstdir}/share/extension/*_plpython3u*
 %endif
+
+%files static
+%{pgbaseinstdir}/lib/libpgfeutils.a
 
 %if %test
 %files test
@@ -1276,6 +1341,60 @@ fi
 %endif
 
 %changelog
+* Thu Oct 1 2026 Yogesh Sharma <yogesh.sharma@catprosystems.com> - 18-6-6PGDG
+- Add libpgfeutils.a to static rpm
+
+* Mon Sep 21 2026 Devrim Gündüz <devrim@gunduz.org> - 16.15-5PGDG
+- Own the directories under %%{pgbaseinstdir} that were left unowned
+  (base dir, bin, doc, include, share/man*, share/locale, share/contrib,
+  share/tsearch_data, share/timezonesets), so that removing all packages
+  leaves nothing behind. Move the ownership of lib and share from -server
+  to -libs.
+  Per https://github.com/pgdg-packaging/pgdg-rpms/issues/235
+- Move the regression tests from %%build to %%check. They are still
+  disabled by default; enable them with --define 'runselftest 1'. Fail
+  the build when a test suite fails: the failures were ignored so far.
+  Per https://github.com/pgdg-packaging/pgdg-rpms/issues/165
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 16.15-4PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 16.15-3PGDG
+- EL-10 and Fedora 44: Ship a local SELinux policy module (loaded in %post server) that
+  allows sshd_session_t to search/read postgresql_db_t, fixing SSH pubkey
+  auth for the postgres user via ~/.ssh/authorized_keys under EL-10's
+  SELinux policy. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/229
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 16.15-2PGDG
+- Fix macros for Amazon Linux 2023
+
+* Tue Aug 11 2026 Devrim Gunduz <devrim@gunduz.org> - 16.15-1PGDG
+- Update to 16.15, per changes described at:
+  https://www.postgresql.org/docs/release/16.15/
+- Fix builds on Fedora rawhide. Rawhide does not have openssl-devel-engine
+  anymore. It is all back to openssl-devel.
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 16.14-4PGDG
+- Add Amazon Linux 2023 support.
+- Apply a part of bcf82593 missed in for this spec file. Per report
+  from Muralikrishna Bandaru.
+
+* Tue Jun 2 2026 Devrim Gündüz <devrim@gunduz.org> - 16.14-3PGDG
+- Backport a few fixes from PostgreSQL 19:
+  Remove SUSE systemd scriptlet (%%service_add_post) as it can use
+  the RHEL one as well.
+  Correct update-alternatives removal for pg_walsummary man page
+  Fix share/extension typo
+  Tidy man-page subpackage placements (pg_waldump, pg_receivewal)
+
+* Sun May 17 2026 Devrim Gündüz <devrim@gunduz.org> - 16.14-2PGDG
+- Rebuild on RHEL 8 against new LLVM
+
+* Tue May 12 2026 Devrim Gunduz <devrim@gunduz.org> - 16.14-1PGDG
+- Update to 16.14, per changes described at:
+  https://www.postgresql.org/docs/release/16.14/
+
 * Thu Apr 2 2026 Devrim Gündüz <devrim@gunduz.org> - 16.13-3PGDG
 - Add a temp patch to fix builds against LLVM 22 on Fedora 44.
 

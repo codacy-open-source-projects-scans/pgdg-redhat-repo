@@ -1,4 +1,4 @@
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8  || 0%{?amzn}
 %global		debug_package %{nil}
 %global		_missing_build_ids_terminate_build 0
 %endif
@@ -14,8 +14,8 @@ ExcludeArch:	ppc64le
 %endif
 
 Name:		consul
-Version:	1.22.7
-Release:	1PGDG%{?dist}
+Version:	2.0.4
+Release:	2PGDG%{?dist}
 Summary:	Consul is a tool for service discovery and configuration. Consul is distributed, highly available, and extremely scalable.
 
 License:	MPLv2.0
@@ -27,6 +27,8 @@ Source4:	%{name}.json
 Source5:	%{name}.logrotate
 Source6:	%{name}-sysusers.conf
 Source7:	%{name}-tmpfiles.d
+
+BuildRequires:	systemd-rpm-macros
 
 Requires:	systemd
 
@@ -97,7 +99,37 @@ any number of regions without complex configuration.
 %doc
 
 %changelog
-* Mon Apr  27 2026 Devrim Gündüz <devrim@gunduz.org> 1.22.7-1PGDG
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.4-2PGDG
+- Add missing BR
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.4-1PGDG
+- Update to 2.0.4 per changes described at:
+  https://github.com/hashicorp/consul/releases/tag/v2.0.4
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.3-3PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Thu Aug 27 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.3-2PGDG
+- Add Amazon Linux 2023 support
+
+* Sun Aug 9 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.3-1PGDG
+- Update to 2.0.3 per changes described at:
+  https://github.com/hashicorp/consul/releases/tag/v2.0.3
+
+* Thu Jul 9 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.2-1PGDG
+- Update to 2.0.2 per changes described at:
+  https://github.com/hashicorp/consul/releases/tag/v2.0.2
+
+* Mon Jun 22 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.1-1PGDG
+- Update to 2.0.1 per changes described at:
+  https://github.com/hashicorp/consul/releases/tag/v2.0.1
+
+* Mon May 25 2026 Devrim Gündüz <devrim@gunduz.org> 2.0.0-1PGDG
+- Update to 2.0.0 per changes described at:
+  https://github.com/hashicorp/consul/releases/tag/v2.0.0
+
+* Mon Apr 27 2026 Devrim Gündüz <devrim@gunduz.org> 1.22.7-1PGDG
 - Update to 1.22.7 per changes described at:
   https://github.com/hashicorp/consul/releases/tag/v1.22.7
 

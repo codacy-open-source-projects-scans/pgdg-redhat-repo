@@ -2,17 +2,17 @@
 
 Summary:	PostgreSQL based time-series database
 Name:		%{sname}-tsl_%{pgmajorversion}
-Version:	2.26.3
+Version:	2.30.2
 Release:	1PGDG%{?dist}
 License:	Timescale
 Source0:	https://github.com/timescale/%{sname}/archive/%{version}.tar.gz
 URL:		https://github.com/timescale/%{sname}
-BuildRequires:	postgresql%{pgmajorversion}-devel cmake >= 3.4
+BuildRequires:	postgresql%{pgmajorversion}-devel cmake >= 3.4 gcc
 %if 0%{?suse_version} >= 1500
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -66,6 +66,67 @@ cd build; %{__make} %{?_smp_mflags} DESTDIR=%{buildroot} install
 %{pginstdir}/lib/pgxs/src/test/perl/TimescaleNode.pm
 
 %changelog
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 2.30.2-1PGDG
+- Update to 2.30.2, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.30.2
+- Add gcc to BuildRequires. Nothing else pulls it in, so the build
+  failed in a minimal build root (mock).
+
+* Thu Sep 17 2026 Devrim Gündüz <devrim@gunduz.org> - 2.30.1-1PGDG
+- Update to 2.30.1, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.30.1
+
+* Wed Sep 9 2026 Devrim Gündüz <devrim@gunduz.org> - 2.30.0-1PGDG
+- Update to 2.30.0, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.30.0
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 2.29.2-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Tue Aug 18 2026 Devrim Gündüz <devrim@gunduz.org> - 2.29.2-1PGDG
+- Update to 2.29.2, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.29.2
+
+* Wed Aug 5 2026 Devrim Gündüz <devrim@gunduz.org> - 2.29.1-1PGDG
+- Update to 2.29.1, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.29.1
+
+* Tue Jul 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.29.0-1PGDG
+- Update to 2.29.0, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.29.0
+
+* Thu Jul 16 2026 Devrim Gündüz <devrim@gunduz.org> - 2.28.3-1PGDG
+- Update to 2.28.3, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.28.3
+
+* Tue Jun 30 2026 Devrim Gündüz <devrim@gunduz.org> - 2.28.2-1PGDG
+- Update to 2.28.2, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.28.2
+
+* Tue Jun 30 2026 Devrim Gündüz <devrim@gunduz.org> - 2.28.1-1PGDG
+- Update to 2.28.1, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.28.1
+
+* Tue Jun 16 2026 Devrim Gündüz <devrim@gunduz.org> - 2.28.0-1PGDG
+- Update to 2.28.0, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.28.0
+
+* Tue Jun 2 2026 Devrim Gündüz <devrim@gunduz.org> - 2.27.2-1PGDG
+- Update to 2.27.2, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.27.2
+
+* Tue May 19 2026 Devrim Gündüz <devrim@gunduz.org> - 2.27.1-1PGDG
+- Update to 2.27.1, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.27.1
+
+* Tue May 12 2026 Devrim Gündüz <devrim@gunduz.org> - 2.27.0-1PGDG
+- Update to 2.27.0, per changes described at:
+ https://github.com/timescale/timescaledb/releases/tag/2.27.0
+
+* Wed Apr 29 2026 Devrim Gündüz <devrim@gunduz.org> - 2.26.4-1PGDG
+- Update to 2.26.4, per changes described at:
+  https://github.com/timescale/timescaledb/releases/tag/2.26.4
+
 * Tue Apr 14 2026 Devrim Gündüz <devrim@gunduz.org> - 2.26.3-1PGDG
 - Update to 2.26.3, per changes described at:
   https://github.com/timescale/timescaledb/releases/tag/2.26.3

@@ -1,17 +1,17 @@
 %global pypi_name	typing_extensions
 
 Name:		python3-typing-extensions
-Version:	4.7.0
+Version:	4.16.0
 Release:	2PGDG%{?dist}
 Summary:	Python Typing Extensions
 
 License:	PSF-2.0
 URL:		https://pypi.org/project/typing-extensions/
-Source0:	https://files.pythonhosted.org/packages/source/t/%{pypi_name}/%{pypi_name}-4.7.0.tar.gz
+Source0:	https://files.pythonhosted.org/packages/source/t/%{pypi_name}/%{pypi_name}-4.16.0.tar.gz
 
 BuildArch:	noarch
 
-BuildRequires:	python3-devel python3-flit-core
+BuildRequires:	python3-devel python3-flit-core python3-pip
 
 %if 0%{?suse_version} >= 1500
 BuildRequires:	python-rpm-macros
@@ -56,6 +56,13 @@ where `x.y` is the first version that includes all features you need.
 %doc README.md
 
 %changelog
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 4.16.0-2PGDG
+- Add missing BR
+
+* Mon Aug 31 2026 Devrim Gündüz <devrim@gunduz.org> - 4.16.0-1PGDG
+- Update to 4.16.0 per changes described at:
+  https://pypi.org/project/typing-extensions/4.16.0/
+
 * Sat Nov 8 2025 Devrim Gündüz <devrim@gunduz.org> - 4.7.0-2PGDG
 - Fix builds on SLES
 - Add missing BRs

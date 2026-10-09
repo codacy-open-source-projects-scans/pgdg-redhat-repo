@@ -1,17 +1,32 @@
 %global sname bgw_replstatus
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Name:		%{sname}_%{pgmajorversion}
 Version:	1.0.8
-Release:	3PGDG%{?dist}
+Release:	6PGDG%{?dist}
 Summary:	PostgreSQL background worker to report wether a node is a replication master or standby
 License:	PostgreSQL
 URL:		https://github.com/mhagander/%{sname}
 Source0:	https://github.com/mhagander/%{sname}/archive/%{version}.tar.gz
 
-BuildRequires:	postgresql%{pgmajorversion}-devel pgdg-srpm-macros >= 1.0.12
+BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %description
 bgw_replstatus is a tiny background worker to cheaply report the
@@ -41,7 +56,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -54,11 +73,39 @@ This package provides JIT support for bgw_replstatus
 %setup -q -n %{sname}-%{version}
 
 %build
-USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags}
+USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot}
+USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot} %{with_llvm_arg}
+
+%check
+%if %runselftest
+# Start a primary and a standby with bgw_replstatus preloaded, and check that
+# the worker answers MASTER and STANDBY respectively. The TCP ports depend on
+# the PostgreSQL version, so that builds for different versions can run side
+# by side.
+%pgdg_check_init
+bgwport=$((25000 + %{pgmajorversion} * 10))
+pgdg_check_start primary "shared_preload_libraries = 'bgw_replstatus'" \
+	"bgw_replstatus.bind = '127.0.0.1'" "bgw_replstatus.port = $bgwport"
+pgdg_check_standby standby primary "bgw_replstatus.port = $((bgwport + 1))"
+
+# Print what the worker on the given port answers, waiting for it to start
+replstatus() {
+	for i in $(seq 30); do
+		resp=$(timeout 5 bash -c "cat < /dev/tcp/127.0.0.1/$1" 2>/dev/null) && [ -n "$resp" ] && break
+		sleep 1
+	done
+	echo "$resp"
+}
+primary=$(replstatus $bgwport)
+standby=$(replstatus $((bgwport + 1)))
+echo "primary: $primary, standby: $standby"
+if [ "$primary" != MASTER ] || [ "$standby" != STANDBY ]; then
+	exit 1
+fi
+%endif
 
 %files
 %doc README.md
@@ -71,6 +118,22 @@ USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} install DESTDIR
 %endif
 
 %changelog
+* Mon Sep 28 2026 Devrim Gündüz <devrim@gunduz.org> - 1.0.8-6PGDG
+- Add %%check: start a primary and a standby with bgw_replstatus
+  preloaded, and check that the worker reports MASTER and STANDBY. It
+  uses the %%check helpers from pgdg-srpm-macros 2.0.0, and it is
+  disabled by default; enable it with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.8-5PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.8-4PGDG
+- Add Amazon Linux 2023 support.
+
 * Sun Oct 5 2025 Devrim Gündüz <devrim@gunduz.org> - 1.0.8-3PGDG
 - Add SLES 16 support
 

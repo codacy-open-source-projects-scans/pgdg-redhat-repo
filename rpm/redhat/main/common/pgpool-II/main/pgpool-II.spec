@@ -1,29 +1,57 @@
 %global	_build_id_links none
 %global pgpoolinstdir /usr
 %global sname pgpool-II
+%{!?runselftest:%global runselftest 0}
 
 Summary:		Pgpool is a connection pooling/replication server for PostgreSQL
 Name:			%{sname}
-Version:		4.7.1
-Release:		1PGDG%{?dist}
+Version:		4.7.3
+Release:		2PGDG%{?dist}
 License:		BSD
 URL:			https://pgpool.net
-Source0:		https://www.pgpool.net/mediawiki/images/%{sname}-%{version}.tar.gz
+Source0:		https://www.pgpool.net/source/%{sname}-%{version}.tar.gz
 Source1:		%{sname}.service
 Source2:		%{sname}.sysconfig
 Source6:		%{sname}-sysusers.conf
 Source7:		%{sname}-tmpfiles.d
+# Runs the regression suite in %%check
+Source8:		%{sname}-check.sh
 Patch1:			%{sname}-conf.sample.patch
 
+BuildRequires:		gcc
+%if 0%{?suse_version} == 1500
+BuildRequires:	llvm17-devel clang17-devel
+%endif
+%if 0%{?suse_version} == 1600
+BuildRequires:	llvm19-devel clang19-devel
+%endif
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
+BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
+%endif
 BuildRequires:		postgresql%{pgmajorversion}-devel pam-devel
 BuildRequires:		libmemcached-devel
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server postgresql%{pgmajorversion}-contrib
+BuildRequires:	pgdg-srpm-macros >= 2.0.0 procps-ng openssl iputils
+%if 0%{?fedora} || 0%{?rhel} >= 8
+# Several tests run a JDBC client or memcached, rewrite_timestamp uses ruby
+BuildRequires:	java-devel postgresql-jdbc /usr/bin/ruby memcached
+%endif
+%if 0%{?rhel}
+# ruby does not start without it on RHEL
+BuildRequires:	rubygems
+%endif
+%endif
 Requires:		libmemcached
 
 %if 0%{?suse_version} >= 1500
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -101,6 +129,15 @@ USE_PGXS=1 %{__make} %{?_smp_mflags}
 USE_PGXS=1 %{__make} %{?_smp_mflags} -C src/sql/pgpool_adm
 USE_PGXS=1 %{__make} %{?_smp_mflags} -C src/sql/pgpool-recovery
 USE_PGXS=1 %{__make} %{?_smp_mflags} -C src/sql/pgpool-regclass
+
+%check
+%if %runselftest
+%pgdg_check_init
+PGDG_PGINSTDIR=%{pginstdir}
+PGPOOL_PREFIX=%{_prefix} PGPOOL_BINDIR=%{_bindir} PGPOOL_LIBDIR=%{_libdir}
+PGPOOL_CONFDIR=%{_sysconfdir}/%{name}
+. %{SOURCE8}
+%endif
 
 %install
 export PATH=%{pginstdir}/bin/:$PATH
@@ -196,6 +233,36 @@ fi
 %{_libdir}/libpgpoolpcp.so*
 
 %changelog
+* Sat Oct 3 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.3-2PGDG
+- Add %%check, running upstream's regression suite (src/test/regression)
+  against a scratch installation, except two watchdog tests that cannot
+  work in a build environment. It is disabled by default; enable it with
+  --define 'runselftest 1'. It uses fixed ports from 11000 up, so do not
+  run two such builds on one host at a time.
+
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.3-1PGDG
+- Update to 4.7.3 per changes described at:
+  https://www.pgpool.net/docs/latest/en/html/release-4-7-3.html
+  Fixes CVE-2026-92867, CVE-2026-92868, CVE-2026-92869, CVE-2026-92870,
+  CVE-2026-92871, CVE-2026-92872 and CVE-2026-92873.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-4PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-3PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Thu Jun 4 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.2-1PGDG
+- Update to 4.7.2 per changes described at:
+  https://www.pgpool.net/docs/latest/en/html/release-4-7-2.html
+
+* Wed May 13 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.1-2PGDG
+- Update download URL
+
 * Thu Feb 26 2026 Devrim Gündüz <devrim@gunduz.org> - 4.7.1-1PGDG
 - Update to 4.7.1 per changes described at:
   https://www.pgpool.net/docs/latest/en/html/release-4-7-1.html

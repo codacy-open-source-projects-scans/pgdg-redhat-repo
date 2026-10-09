@@ -2,10 +2,22 @@
 %global unitname	%{sname}-%{pgmajorversion}
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Name:		%{sname}_%{pgmajorversion}
 Version:	5.5.0
-Release:	7PGDG%{?dist}
+Release:	12PGDG%{?dist}
 Summary:	Replication Manager for PostgreSQL Clusters
 License:	GPLv3
 URL:		https://github.com/enterpriseDB/%{sname}
@@ -56,14 +68,25 @@ BuildRequires:	postgresql%{pgmajorversion} postgresql%{pgmajorversion}-devel
 BuildRequires:	libxslt-devel pam-devel readline-devel
 BuildRequires:	libmemcached-devel libicu-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %if 0%{?suse_version} >= 1500
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
+%endif
+
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:	numactl-devel
+Requires:	numactl-libs
+%else
+BuildRequires:	libnuma-devel
+Requires:	libnuma1
 %endif
 
 %description
@@ -93,7 +116,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -111,12 +138,12 @@ export PG_CONFIG=%{pginstdir}/bin/pg_config
 %configure
 
 %build
-USE_PGXS=1 %{__make} %{?_smp_mflags}
+USE_PGXS=1 %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__mkdir} -p %{buildroot}/%{pginstdir}/bin/
 # Use new %%make_install macro:
-USE_PGXS=1 %make_install DESTDIR=%{buildroot}
+USE_PGXS=1 %make_install %{with_llvm_arg} DESTDIR=%{buildroot}
 
 %{__mkdir} -p %{buildroot}/%{pginstdir}/bin/
 # Install sample conf file
@@ -134,6 +161,14 @@ USE_PGXS=1 %make_install DESTDIR=%{buildroot}
 cat > %{buildroot}%{_tmpfilesdir}/%{name}.conf <<EOF
 d %{_rundir}/%{sname} 0755 postgres postgres -
 EOF
+
+%check
+%if %runselftest
+# The expected output is for a server that does not preload repmgr
+%pgdg_check_init
+pgdg_check_start main
+pgdg_installcheck %{with_llvm_arg}
+%endif
 
 %pre
 if [ ! -x /var/log/repmgr ]
@@ -182,6 +217,30 @@ fi
 %endif
 
 %changelog
+* Sun Sep 13 2026 Devrim Gunduz <devrim@gunduz.org> - 5.5.0-12PGDG
+- Add missing BRs and Requires.
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 5.5.0-11PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 5.5.0-10PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  repmgr-pg14..18 service files, so that Restart=on-failure cannot
+  crash-loop indefinitely. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 5.5.0-9PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 5.5.0-8PGDG
+- Add Amazon Linux 2023 support.
+
 * Wed Dec 24 2025 Devrim Gündüz <devrim@gunduz.org> - 5.5.0-7PGDG
 - Add Restart=on-failure to unit file. Per
   https://github.com/pgdg-packaging/pgdg-rpms/issues/127

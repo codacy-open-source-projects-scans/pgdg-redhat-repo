@@ -13,7 +13,7 @@
 %endif
 
 Name:		etcd
-Version:	3.6.10
+Version:	3.7.2
 Release:	1PGDG%{?dist}
 Summary:	Distributed reliable key-value store
 License:	ASL 2.0
@@ -28,7 +28,7 @@ BuildRequires:	python3-devel
 BuildRequires:	systemd-rpm-macros systemd
 Requires:	systemd
 
-Provides:       user(etcd) group(etcd)
+Provides:	user(etcd) group(etcd)
 
 %description
 etcd is a distributed reliable key-value store for the most critical data
@@ -87,6 +87,31 @@ of a distributed system, with a focus on being:
 %{_unitdir}/%{name}.service
 
 %changelog
+* Tue Sep 22 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.2-1PGDG
+- Update to 3.7.2, per changes described at:
+  https://github.com/etcd-io/etcd/releases/tag/v3.7.2
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.1-2PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+
+* Tue Aug 18 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.1-1PGDG
+- Update to 3.7.1, per changes described at:
+  https://github.com/etcd-io/etcd/releases/tag/v3.7.1
+
+* Tue Aug 18 2026 Devrim Gündüz <devrim@gunduz.org> - 3.5.33-1PGDG
+- Roll out 3.5.33 in order to be upgrade to 3.6.X from an existing 3.5
+  cluster. Per https://etcd.io/docs/v3.7/upgrades/upgrade_3_6/
+
+* Mon Jul 20 2026 Devrim Gündüz <devrim@gunduz.org> - 3.7.0-1PGDG
+- Update to 3.7.0, per changes described at:
+  https://github.com/etcd-io/etcd/releases/tag/v3.7.0
+
+* Sun May 3 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.11-1PGDG
+- Update to 3.6.11, per changes described at:
+  https://github.com/etcd-io/etcd/releases/tag/v3.6.11
+
 * Thu Apr 2 2026 Devrim Gündüz <devrim@gunduz.org> - 3.6.10-1PGDG
 - Update to 3.6.10, per changes described at:
   https://github.com/etcd-io/etcd/releases/tag/v3.6.10

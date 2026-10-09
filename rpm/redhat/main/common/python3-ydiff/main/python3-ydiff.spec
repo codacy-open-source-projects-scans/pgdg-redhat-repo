@@ -1,18 +1,19 @@
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -23,23 +24,36 @@
 %global	python3_pkgversion 313
 %endif
 
-%{expand: %%global py3ver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%global python3_sitelib %(%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
-
 Name:		ydiff
 Version:	1.4.2
-Release:	48PGDG%{?dist}
+Release:	54PGDG%{?dist}
 Summary:	View colored, incremental diff
 URL:		https://github.com/ymattw/%{name}
 License:	BSD
 Source0:	https://github.com/ymattw/%{name}/archive/%{version}/%{name}-%{version}.tar.gz
+
+%if 0%{?suse_version} >= 1500
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+# python%%{python3_pkgversion}-devel is what pulls python3-rpm-generators
+# into the buildroot on RHEL/Fedora; pyproject-rpm-macros alone does not.
+# Without it, neither python(abi) nor python%%{python3_pkgversion}dist(...)
+# get generated. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/228
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+%endif
+
 BuildArch:	noarch
 
 Requires:	less
 Requires:	python%{python3_pkgversion}-%{name}
 
 Provides:	python%{python3_pkgversion}dist(ydiff)
+%if 0%{?amzn} == 2023
+Provides:	python%{python3_pkgversion}-ydiff
+%endif
 
 %description
 Term based tool to view colored, incremental diff in a Git/Mercurial/Svn
@@ -48,7 +62,7 @@ pager support.
 
 %package -n	python3-%{name}
 Summary:	%{summary}
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?suse_version} >= 1500
 %{?python_provide:%python_provide python3-%{name}}
 %endif
 %description -n	python3-%{name}
@@ -59,11 +73,10 @@ Python library that implements API used by ydiff tool.
 %{_bindir}/sed -i '/#!\/usr\/bin\/env python/d' ydiff.py
 
 %build
-%{__ospython} setup.py build
+%pyproject_wheel
 
 %install
-%{__rm} -rf %{buildroot}
-%{__ospython} setup.py install --root %{buildroot} -O1 --skip-build
+%pyproject_install
 
 %files
 %doc README.rst
@@ -73,9 +86,35 @@ Python library that implements API used by ydiff tool.
 %files -n python3-%{name}
 %{python3_sitelib}/__pycache__/*
 %{python3_sitelib}/%{name}.py
-%{python3_sitelib}/%{name}-%{version}-py%{py3ver}.egg-info
+%{python3_sitelib}/%{name}-%{version}.dist-info
 
 %changelog
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-54PGDG
+- Add missing BR
+
+* Thu Sep 3 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-53PGDG
+- Provide another package for AL 2023
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-52PGDG
+- Add back python%{python3_pkgversion}-devel as a BuildRequires on the
+  non-SLES branch, needed to pull python3-rpm-generators into the
+  buildroot for this pyproject build. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-51PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-50PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Wed Aug 12 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-49PGDG
+- Add Fedora 45 support
+
 * Tue Apr 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.2-48PGDG
 - Add Fedora 44 support
 

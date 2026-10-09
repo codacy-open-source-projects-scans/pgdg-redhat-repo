@@ -1,21 +1,23 @@
 %if 0%{?fedora} && 0%{?fedora} == 44
-%global __ospython %{_bindir}/python3.15
-%global python3_pkgversion 3.15
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
 %endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
 %endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
+%endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
+%global	__python3 %{_bindir}/python3.11
 %global	python3_pkgversion 311
 %endif
 %if 0%{?suse_version} == 1600
@@ -25,7 +27,7 @@
 
 Name:		python%{python3_pkgversion}-dns
 Version:	2.8.0
-Release:	43PGDG%{?dist}
+Release:	51PGDG%{?dist}
 Summary:	DNS toolkit for Python
 
 Group:		Development/Languages
@@ -38,9 +40,17 @@ Patch0:		pgdg-python3-dns-removehatchling.patch
 BuildArch:	noarch
 
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-wheel
+%if 0%{?suse_version} >= 1500
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+%endif
 
 Provides:	python3-%{sname}%{?_isa} = %{version}-%{release}
-Provides:	python%{python3_pkgversion}dist(%{name}) = %{version}-%{release}
+Provides:	python%{python3_pkgversion}dist(dnspython) = %{version}-%{release}
 
 %description
 dnspython is a DNS toolkit for Python. It supports almost all record
@@ -55,6 +65,9 @@ manipulation of DNS zones, messages, names, and records.
 %prep
 %setup -q -n dnspython-%{version}
 %patch -P 0 -p0
+# Patch0 removes hatchling, so setuptools can't read the dynamic version from
+# dns/version.py and falls back to 0.0.0. Set the version statically instead.
+sed -i 's/^dynamic = \["version"\]/version = "%{version}"/' pyproject.toml
 
 # strip exec permissions so that we don't pick up dependencies from docs
 find examples -type f | xargs chmod a-x
@@ -69,10 +82,51 @@ find examples -type f | xargs chmod a-x
 %defattr(-,root,root,-)
 # Add README.* when it is included with the source (commit a906279)
 %doc {ChangeLog,LICENSE,examples}
-%{python3_sitelib}/dnspython-*.dist-info/*
+%{python3_sitelib}/dnspython-*.dist-info/
 %{python3_sitelib}/dns
 
 %changelog
+* Thu Oct 08 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-51PGDG
+- Set the version statically in pyproject.toml, so that the package does not
+  install dnspython-0.0.0.dist-info, which made security scanners report
+  CVEs that are already fixed in 2.8.0. Patch by Surabhi Bhat. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/pull/243
+- Add missing python3-wheel BR
+- Set __python3 on SLES 15, so that the build uses python3.11
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-50PGDG
+- Remove Fedora <= 42 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-49PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-48PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-47PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-46PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Wed May 6 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-45PGDG
+- Fix Provides so that it provides the correct package name. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/190
+
+* Mon May 4 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-44PGDG
+- Use Python 3.14 on Fedora 44. Many BRs and Requires are not ready for 3.15.
+  Per #167.
+- Fix https://github.com/pgdg-packaging/pgdg-rpms/issues/180
+
 * Thu Apr 9 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-43PGDG
 - Fix a dependency issue
 

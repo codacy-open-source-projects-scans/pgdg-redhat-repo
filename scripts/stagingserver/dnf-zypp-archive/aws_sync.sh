@@ -12,6 +12,7 @@ ver=""
 pg=""
 extras=""
 non_free=0
+delete_testing=0
 dry_run=0
 debug=0
 
@@ -21,22 +22,25 @@ S3_BUCKET=""
 osdistro=""
 osname=""
 any_sync_done=0
+synced_something=0
 
 usage() {
   cat <<EOF
 Usage: $0 --os <os> --ver <version> [--arch <arch>] [--pg <pg_version>] [options]
 
 Required:
-  --os         OS name (rhel, fedora, or sles)
-  --ver        OS version (e.g., 8, 9, 10, 41, 42, 43)
+  --os         OS name (rhel, fedora, sles, opensuse, or amzn)
+  --ver        OS version (e.g., 8, 9, 10, 41, 42, 43, 2023)
 
 Optional:
   --arch       Architecture (${VALID_ARCH[*]})
                If omitted, all architectures are synced.
   --pg         PostgreSQL version ($(IFS="|"; echo "${VALID_PG_VERSIONS[*]}"))
                If omitted, only the common repo is synced.
-  --extras=1   Sync extras (redhat only)
+  --extras=1   Sync the extras repo too (if there is one for this OS)
   --non-free   Sync non-free repos for all PG versions (redhat only)
+  --delete-testing
+               Remove the matching local testing repos after a sync
   --dry-run    Show commands without running
   --debug      Print debug output
   --help       Show this help
@@ -53,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --pg) pg="$2"; shift ;;
     --extras=*) extras="${1#*=}" ;;
     --non-free) non_free=1 ;;
+    --delete-testing) delete_testing=1 ;;
     --dry-run) dry_run=1 ;;
     --debug) debug=1 ;;
     --help) usage ;;
@@ -93,6 +98,7 @@ case "$os" in
   fedora)   osdistro="fedora";  osname="fedora" ;;
   sles)     osdistro="suse";    osname="sles" ;;
   opensuse) osdistro="opensuse"; osname="leap" ;;
+  amzn)     osdistro="amzn";    osname="amzn" ;;
   *) echo "Unsupported OS: $os"; exit 1 ;;
 esac
 
@@ -122,6 +128,7 @@ if [[ $debug -eq 1 ]]; then
   echo "  PG Version: ${pg:-<not set>}"
   echo "  Extras: $extras"
   echo "  Non-free: $non_free"
+  echo "  Delete testing: $delete_testing"
   echo "  Dry Run: $dry_run"
   echo ""
 fi
@@ -162,6 +169,17 @@ sync_pg_repo() {
   fi
 }
 
+sync_extras_repo() {
+  local a="$1"
+  local path="$BASE_DIR/extras/$osdistro/$osname-$ver-$a"
+  if [[ -d "$path" ]]; then
+    echo "Syncing extras repo: $path"
+    run_sync_cmd "$path" "$S3_BUCKET/extras/$osdistro/$osname-$ver-$a"
+  else
+    echo "[Skip] Missing extras repo dir: $path"
+  fi
+}
+
 sync_non_free_repos() {
   local pgver_filter="$1"  # if set, sync only this PG version; otherwise sync all
   if [[ "$osdistro" != "redhat" ]]; then
@@ -183,21 +201,26 @@ sync_non_free_repos() {
   done
 }
 
-cleanup_testing_repos() {
-  local a="$1"
-  echo "Cleaning testing repos for arch: $a"
-  for pgv in "${VALID_PG_VERSIONS[@]}"; do
-    for subdir in "" "common/" "debug/"; do
-      local path="$BASE_DIR/testing/${subdir}$pgv/$osdistro/$osname-$ver-$a"
-      if [[ -d "$path" ]]; then
-        if [[ $dry_run -eq 1 ]]; then
-          echo "[Dry-run] /bin/rm -rvf $path"
-        else
-          /bin/rm -rvf "$path"
-        fi
-      fi
-    done
-  done
+# Remove a local testing repo. Paths follow the layout that
+# ../sync/sync_pgdg_rpms.sh rsyncs the testing repos into:
+#   testing/<pg>/<osdistro>/<osname>-<ver>-<arch>
+#   testing/common/<osdistro>/<osname>-<ver>-<arch>
+#   testing/extras/<osdistro>/<osname>-<ver>-<arch>
+# Usage: cleanup_testing_repo <pg|common|extras> <arch>
+cleanup_testing_repo() {
+  local repo="$1"
+  local a="$2"
+  local path="$BASE_DIR/testing/$repo/$osdistro/$osname-$ver-$a"
+  if [[ -d "$path" ]]; then
+    echo "Cleaning $repo testing repo: $path"
+    if [[ $dry_run -eq 1 ]]; then
+      echo "[Dry-run] /bin/rm -rvf $path"
+    else
+      /bin/rm -rvf "$path"
+    fi
+  else
+    echo "[Skip] Missing $repo testing repo dir: $path"
+  fi
 }
 
 # non-free is fully independent of the normal arch-scoped sync path.
@@ -208,25 +231,38 @@ else
   for a in "${archs[@]}"; do
     echo "--- Arch: $a ---"
 
+    # Clean up the matching testing repo only if asked for, and only if
+    # the repo was synced for this arch
+    any_sync_done=0
     if [[ -z "$pg" ]]; then
       sync_common_repo "$a"
+      if [[ $delete_testing -eq 1 && $any_sync_done -eq 1 ]]; then
+        cleanup_testing_repo common "$a"
+      fi
     else
       sync_pg_repo "$pg" "$a"
+      if [[ $delete_testing -eq 1 && $any_sync_done -eq 1 ]]; then
+        cleanup_testing_repo "$pg" "$a"
+      fi
     fi
-
-    # Clean up testing repos only if something was synced for this arch
     if [[ $any_sync_done -eq 1 ]]; then
-      cleanup_testing_repos "$a"
+      synced_something=1
     fi
 
     if [[ "$extras" == "1" ]]; then
-      echo "Syncing extras repo for arch: $a"
-      run_sync_cmd "$BASE_DIR/extras/$osdistro/$a" "$S3_BUCKET/extras/$osdistro/$a"
+      any_sync_done=0
+      sync_extras_repo "$a"
+      if [[ $any_sync_done -eq 1 ]]; then
+        synced_something=1
+        if [[ $delete_testing -eq 1 ]]; then
+          cleanup_testing_repo extras "$a"
+        fi
+      fi
     fi
   done
 fi
 
-if [[ $any_sync_done -eq 0 ]]; then
+if [[ $synced_something -eq 0 && $any_sync_done -eq 0 ]]; then
   echo -e "\n[Info] No sync was performed. Skipping cleanup."
 fi
 

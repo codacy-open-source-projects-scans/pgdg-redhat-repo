@@ -1,16 +1,20 @@
 %global pypi_name zstandard
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} >= 1500
 %global	__ospython %{_bindir}/python3.11
@@ -18,20 +22,25 @@
 %endif
 
 %{expand: %%global pybasever %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%{expand: %%global python3_sitearch %(echo `%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(2))"`)}
+%global python3_sitearch %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('platlib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 Name:		python%{python3_pkgversion}-%{pypi_name}
-Version:	0.23.0
-Release:	43PGDG%{?dist}.1
+Version:	0.25.0
+Release:	2PGDG%{?dist}.1
 Summary:	Zstandard bindings for Python
 License:	(BSD-3-Clause OR GPL-2.0-only) AND MIT
 URL:		https://github.com/indygreg/python-%{pypi_name}
 Source0:	https://files.pythonhosted.org/packages/source/z/%{pypi_name}/%{pypi_name}-%{version}.tar.gz
-# relax dependencies
-Patch1:		python-%{pypi_name}-deps.patch
+# Only applied on RHEL, AL 2023 and SLES 15, where setuptools is older than 77 and
+# does not know the SPDX license expression of pyproject.toml, and where an older
+# python3-trove-classifiers (2025.3.13 on AL 2023) rejects the free-threading
+# classifier. It is listed on every distro, so that the SRPM always carries it.
+Patch0:		zstandard-use-legacy-license-metadata.patch
 BuildRequires:	gcc
 BuildRequires:	libzstd-devel
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-setuptools python%{python3_pkgversion}-packaging
+BuildRequires:	python%{python3_pkgversion}-cffi
 
 # https://github.com/indygreg/python-zstandard/issues/48
 Provides:	bundled(zstd) = 1.5.6
@@ -42,7 +51,10 @@ compression library. A C extension and CFFI interface are provided.
 
 
 %prep
-%autosetup -p1 -n %{pypi_name}-%{version}
+%setup -q -n %{pypi_name}-%{version}
+%if 0%{?rhel} || 0%{?amzn} || 0%{?suse_version} == 1500
+%patch -P0 -p0
+%endif
 %{__rm} -rf %{pypi_name}.egg-info
 
 %build
@@ -50,11 +62,17 @@ compression library. A C extension and CFFI interface are provided.
 
 %install
 %{__ospython} setup.py install --no-compile --root %{buildroot}
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitearch}/%{pypi_name}
+%endif
 
 %files
 %license LICENSE zstd/COPYING
 %doc README.rst
-%{python3_sitearch}/%{pypi_name}-%{version}-py%{pybasever}.egg-info/*
+%{python3_sitearch}/%{pypi_name}-%{version}-py%{pybasever}.egg-info/
 %{python3_sitearch}/%{pypi_name}/*.py*
 %{python3_sitearch}/%{pypi_name}/py.typed
 %{python3_sitearch}/%{pypi_name}/*.so
@@ -63,6 +81,43 @@ compression library. A C extension and CFFI interface are provided.
 %endif
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 0.25.0-2PGDG
+- Use the older license metadata form of pyproject.toml with a patch on RHEL,
+  AL 2023 and SLES 15, as the setuptools there (68 on RHEL 8/9, 69 on RHEL 10
+  and AL 2023) is older than 77, which 0.25.0 requires for the SPDX license
+  expression. The same patch drops the "Programming Language :: Python ::
+  Free Threading :: 1 - Unstable" classifier, which the older
+  python3-trove-classifiers of AL 2023 (2025.3.13) does not know, and setuptools
+  rejects the whole pyproject.toml when it is installed.
+- Add AL 2023 support (the AL-2023 directory).
+- Migrate %%python3_sitearch off the removed distutils.sysconfig module
+  to sysconfig.get_path()
+- Drop python-zstandard-deps.patch: it is no longer needed.
+- Add missing BRs (python3-setuptools, python3-packaging, python3-cffi)
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 0.25.0-1PGDG.1
+- Update to 0.25.0 per changes described at:
+  https://pypi.org/project/zstandard/0.25.0/
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 0.23.0-46PGDG.1
+- Package the .egg-info directory itself instead of globbing only its
+  contents (egg-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .egg-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 0.23.0-45PGDG.1
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated and
+  the build failed with a missing-file error.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 0.23.0-44PGDG.1
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Mon Sep 22 2025 Devrim Gunduz <devrim@gunduz.org> - 0.23.0-43PGDG.1
 - Add Fedora 43 support
 

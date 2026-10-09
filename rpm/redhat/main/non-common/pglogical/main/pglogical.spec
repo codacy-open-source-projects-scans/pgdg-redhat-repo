@@ -2,18 +2,34 @@
 
 %global pglogicalmajver 2
 %global pglogicalmidver 4
-%global pglogicalminver 6
+%global pglogicalminver 8
 
 %{!?llvm:%global llvm 1}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Summary:	Logical Replication extension for PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
 Version:	%{pglogicalmajver}.%{pglogicalmidver}.%{pglogicalminver}
-Release:	4PGDG%{dist}
+Release:	5PGDG%{dist}
 License:	PostgreSQL
 URL:		https://github.com/2ndQuadrant/%{sname}
 Source0:	https://github.com/2ndQuadrant/%{sname}/archive/REL%{pglogicalmajver}_%{pglogicalmidver}_%{pglogicalminver}.tar.gz
 BuildRequires:	postgresql%{pgmajorversion}-devel
+# The static libraries (libpgcommon, libpgport) are in the -static subpackage
+# as of PostgreSQL 19:
+%if %{pgmajorversion} >= 19
+BuildRequires:	postgresql%{pgmajorversion}-static
+%endif
 # lz4 dependency
 %if 0%{?suse_version} >= 1500
 BuildRequires:	liblz4-devel
@@ -22,6 +38,13 @@ Requires:	liblz4-1
 %if 0%{?rhel} || 0%{?fedora}
 BuildRequires:	lz4-devel
 Requires:	lz4-libs
+%if 0%{?rhel} || 0%{?fedora}
+BuildRequires:  numactl-devel
+Requires:	numactl-libs
+%else
+BuildRequires:	libnuma-devel
+Requires:	libnuma1
+%endif
 # zstd dependency
 %if 0%{?suse_version} >= 1500
 BuildRequires:	libzstd-devel >= 1.4.0
@@ -36,7 +59,7 @@ Requires:	libzstd >= 1.4.0
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -68,7 +91,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -81,10 +108,10 @@ This package provides JIT support for pglogical
 %setup -q -n %{sname}-REL%{pglogicalmajver}_%{pglogicalmidver}_%{pglogicalminver}
 
 %build
-PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags}
+PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
-PATH=%{pginstdir}/bin:$PATH %make_install
+PATH=%{pginstdir}/bin:$PATH %make_install %{with_llvm_arg}
 # Install documentation with a better name:
 %{__mkdir} -p %{buildroot}%{pginstdir}/doc/extension
 %{__cp} README.md %{buildroot}%{pginstdir}/doc/extension/README-%{sname}.md
@@ -110,6 +137,33 @@ PATH=%{pginstdir}/bin:$PATH %make_install
 %endif
 
 %changelog
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.8-5PGDG
+- Add missing BR
+- Add postgresqlNN-static to BuildRequires for PostgreSQL 19+: libpgcommon
+  and libpgport static libraries are in that subpackage now.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.8-4PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Mon Aug 24 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.8-3PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.4.8-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Tue Jul 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.4.8-1PGDG
+- Update to 2.4.8 per changes described at:
+  https://github.com/2ndQuadrant/pglogical/releases/tag/REL2_4_8
+  Fixes CVE-2026-50735, CVE-2026-50736, CVE-2026-50737 and  CVE-2026-50738
+
+* Mon Jun 1 2026 Devrim Gündüz <devrim@gunduz.org> - 2.4.7-1PGDG
+- Update to 2.4.7 per changes described at:
+  https://github.com/2ndQuadrant/pglogical/releases/tag/REL2_4_7
+
 * Wed Nov 5 2025 Devrim Gündüz <devrim@gunduz.org> - 2.4.6-4PGDG
 - Rebuild against OpenSSL 3 on SLES 15
 

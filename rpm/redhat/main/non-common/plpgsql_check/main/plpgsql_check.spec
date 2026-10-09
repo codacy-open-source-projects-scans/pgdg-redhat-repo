@@ -1,18 +1,26 @@
 
 %global sname plpgsql_check
 
+%{!?runselftest:%global runselftest 0}
+
 %{!?llvm:%global llvm 0}
 
 Name:		%{sname}_%{pgmajorversion}
-Version:	2.8.11
+Version:	2.10.13
 Release:	1PGDG%{?dist}
 Summary:	Additional tools for PL/pgSQL functions validation
 License:	BSD
 URL:		https://github.com/okbob/%{sname}
 Source0:	https://github.com/okbob/%{sname}/archive/v%{version}.tar.gz
 
+BuildRequires:	gcc
 BuildRequires:	postgresql%{pgmajorversion}-devel meson
 Requires:	postgresql%{pgmajorversion}
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+# The package is built with meson, but the tests are run with make
+BuildRequires:	make
+%endif
 
 # llvmjit package is not built with meson:
 Obsoletes:	%{sname}_%{pgmajorversion} < 2.8.5-2
@@ -35,7 +43,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -57,6 +69,11 @@ export PATH=%{pginstdir}/bin:$PATH
 export PATH=%{pginstdir}/bin:$PATH
 %meson_install
 
+%check
+%if %runselftest
+%pgdg_check_installcheck
+%endif
+
 %files
 %defattr(644,root,root,755)
 %doc README.md
@@ -72,6 +89,70 @@ export PATH=%{pginstdir}/bin:$PATH
 %endif
 
 %changelog
+* Wed Oct 07 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.13-1PGDG
+- Update to 2.10.13 per changes described at:
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.13
+
+* Mon Oct 5 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.12-1PGDG
+- Update to 2.10.12 per changes described at:
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.12
+
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.11-2PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Sep 27 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.11-1PGDG
+- Update to 2.10.11 per changes described at:
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.11
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.10
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.9
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.7-2PGDG
+- Add missing BR
+
+* Sat Sep 5 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.7-1PGDG
+- Update to 2.10.7 per changes described at:
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.7
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.6
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.5
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.4-1PGDG
+- Update to 2.10.4 per changes described at:
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.4
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 2.10.3-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Mon Jul 27 2026 Devrim Gündüz <devrim@gunduz.org> 2.10.3-1PGDG
+- Update to 2.10.3 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.3
+
+* Tue Jul 21 2026 Devrim Gündüz <devrim@gunduz.org> 2.10.2-1PGDG
+- Update to 2.10.2 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.2
+
+* Thu Jul 16 2026 Devrim Gündüz <devrim@gunduz.org> 2.10.1-1PGDG
+- Update to 2.10.1 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.1
+
+* Wed Jul 15 2026 Devrim Gündüz <devrim@gunduz.org> 2.10.0-1PGDG
+- Update to 2.10.0 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.10.0
+
+* Fri Jul 10 2026 Devrim Gündüz <devrim@gunduz.org> 2.9.3-1PGDG
+- Update to 2.9.3 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.9.3
+
+* Wed Jul 1 2026 Devrim Gündüz <devrim@gunduz.org> 2.9.2-1PGDG
+- Update to 2.9.2 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.9.2
+
+* Sun May 31 2026 Devrim Gündüz <devrim@gunduz.org> 2.9.1-1PGDG
+- Update to 2.9.1 per changes described at
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.9.1
+  https://github.com/okbob/plpgsql_check/releases/tag/v2.9.0
+
 * Wed Feb 18 2026 Devrim Gündüz <devrim@gunduz.org> 2.8.11-1PGDG
 - Update to 2.8.11 per changes described at:
   https://github.com/okbob/plpgsql_check/releases/tag/v2.8.11

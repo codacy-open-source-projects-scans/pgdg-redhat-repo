@@ -2,9 +2,20 @@
 
 %{!?llvm:%global llvm 1}
 
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
+
 Name:		%{sname}_%{pgmajorversion}
-Version:	3.5.0
-Release:	1PGDG%{?dist}
+Version:	3.6.1
+Release:	2PGDG%{?dist}
 Summary:	PostgreSQL Protocol Buffers logical decoder plugin
 
 License:	MIT
@@ -18,8 +29,13 @@ BuildRequires:	postgresql%{pgmajorversion}-devel
 BuildRequires:	libprotobuf-c-devel
 Requires:	libprotobuf-c1
 %else
+%if 0%{?fedora} >= 45
+BuildRequires:	protobuf3-c-devel
+Requires:	protobuf3-c
+%else
 BuildRequires:	protobuf-c-devel
 Requires:	protobuf-c
+%endif
 %endif
 
 %description
@@ -37,7 +53,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -51,10 +71,10 @@ This package provides JIT support for postgres-decoderbufs
 %setup -qn %{sname}-%{version}.Final
 
 %build
-PATH=%{pginstdir}/bin/:$PATH %make_build
+PATH=%{pginstdir}/bin/:$PATH %make_build %{with_llvm_arg}
 
 %install
-PATH=%{pginstdir}/bin/:$PATH %make_install
+PATH=%{pginstdir}/bin/:$PATH %make_install %{with_llvm_arg}
 
 %files
 %doc README.md
@@ -69,6 +89,23 @@ PATH=%{pginstdir}/bin/:$PATH %make_install
 %endif
 
 %changelog
+* Sat Sep 19 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.1-2PGDG
+- Fedora 45: protobuf-c(-devel) is now protobuf3-c(-devel). Use the new names.
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 3.6.1-1PGDG
+- Update to 3.6.1 per changes described at:
+  https://github.com/debezium/postgres-decoderbufs/releases/tag/v3.6.1.Final
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.0-3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 3.5.0-2PGDG
+- Add Amazon Linux 2023 support.
+
 * Tue Apr 14 2026 Devrim Gündüz <devrim@gunduz.org> - 3.5.0-1PGDG
 - Update to 3.5.0 per changes described at
   https://github.com/debezium/postgres-decoderbufs/releases/tag/v3.5.0.Final

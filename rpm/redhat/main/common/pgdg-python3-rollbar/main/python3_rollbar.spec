@@ -1,20 +1,21 @@
 %global sname	rollbar
 
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
 %global __ospython %{_bindir}/python3.15
 %global python3_pkgversion 3.15
 %endif
-%if 0%{?fedora} && 0%{?fedora} == 43
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -27,14 +28,16 @@
 
 Name:		python%{python3_pkgversion}-%{sname}
 Summary:	Python notifier for reporting exceptions, errors, and log messages to Rollbar.
-Version:	0.16.2
-Release:	44PGDG%{?dist}
+Version:	1.4.0
+Release:	3PGDG%{?dist}
 URL:		https://github.com/%{sname}/py%{sname}
 Source0:	https://github.com/%{sname}/py%{sname}/archive/v%{version}.tar.gz
 License:	Python-2.0
 BuildArch:	noarch
 
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
 %if 0%{?suse_version} >= 1500
 BuildRequires:	python-rpm-macros
 %else
@@ -70,12 +73,14 @@ Python versions.
 
 %install
 %pyproject_install
+%{__rm} -rf %{buildroot}%{python3_sitelib}/%{sname}/examples
 
 %files
 %{_bindir}/%{sname}
-%{python3_sitelib}/%{sname}-%{version}.dist-info/*
+%{python3_sitelib}/%{sname}-%{version}.dist-info/
 %{python3_sitelib}/%{sname}/__pycache__/*.py*
 %{python3_sitelib}/%{sname}/*.py*
+%{python3_sitelib}/%{sname}/py.typed
 %{python3_sitelib}/%{sname}/contrib/*.py*
 %{python3_sitelib}/%{sname}/contrib/__pycache__/*py*
 %{python3_sitelib}/%{sname}/contrib/asgi/*.py*
@@ -109,6 +114,36 @@ Python versions.
 %{python3_sitelib}/%{sname}/test/*/__pycache__/*.py*
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.0-2PGDG
+- Fix Fedora 44 mapped to python3.15 instead of python3.14
+- Add Fedora 45 support (python3.15)
+- Remove Fedora <= 42 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.0-2PGDG
+- Add missing BR
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 1.4.0-1PGDG
+- Update to 1.4.0 per changes described at:
+  https://github.com/rollbar/pyrollbar/releases/tag/v1.4.0
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 0.16.2-47PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 0.16.2-46PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 - Devrim Gündüz <devrim@gunduz.org> 0.16.2-45PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Sat Mar 28 2026 - Devrim Gündüz <devrim@gunduz.org> 0.16.2-44PGDG
 - Add Fedora 44 support
 - Change package name to match other "PGDG" branded Python packages

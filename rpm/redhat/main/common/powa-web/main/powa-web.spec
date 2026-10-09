@@ -13,8 +13,8 @@
 
 Summary:	The user interface of PoWA
 Name:		%{sname}
-Version:	5.1.4
-Release:	1PGDG%{?dist}
+Version:	5.3.0
+Release:	3PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/powa-team/powa-web/archive/refs/tags/%{version}.tar.gz
 Source2:	%{sname}.service
@@ -26,7 +26,8 @@ Requires(post):		systemd
 Requires(preun):	systemd
 Requires(postun):	systemd
 
-BuildRequires:		python3-devel
+BuildRequires:		python3-devel python3-pip python3-setuptools
+BuildRequires:		systemd-rpm-macros
 
 %if 0%{?suse_version} >= 1500
 BuildRequires:	python-rpm-macros
@@ -66,11 +67,29 @@ This is the user interface of POWA.
 %{_bindir}/%{sname}
 %dir %{python_sitelib}/%{swebname}
 %{python_sitelib}/%{swebname}/*
-%{python_sitelib}/powa_web-%{version}.dist-info/*
+%{python_sitelib}/powa_web-%{version}.dist-info/
 %{_sysconfdir}/powa-web.conf-dist
 %{_unitdir}/%{sname}.service
 
 %changelog
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 5.3.0-3PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 5.3.0-2PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Mon Aug 17 2026 Devrim Gunduz <devrim@gunduz.org> - 5.3.0-1PGDG
+- Update to 5.3.0 for changes described at
+  https://github.com/powa-team/powa-web/releases/tag/5.3.0
+
+* Mon Jul 13 2026 Devrim Gunduz <devrim@gunduz.org> - 5.2.0-1PGDG
+- Update to 5.2.0 for changes described at
+  https://github.com/powa-team/powa-web/releases/tag/5.2.0
+
 * Mon Mar 30 2026 Devrim Gunduz <devrim@gunduz.org> - 5.1.4-1PGDG
 - Update to 5.1.4 for changes described at
   https://github.com/powa-team/powa-web/releases/tag/5.1.4

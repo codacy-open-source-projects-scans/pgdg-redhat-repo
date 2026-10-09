@@ -8,8 +8,9 @@ BuildRequires:	cgal-devel
 %endif
 
 %if 0%{?suse_version} && 0%{?suse_version} == 1600
-Version:	2.2.0
+Version:	2.3.0
 BuildRequires:	CGAL-devel >= 6.1
+BuildRequires:	nlohmann_json-devel >= 3.11
 %endif
 
 %if 0%{?rhel} && 0%{?rhel} == 8
@@ -19,16 +20,18 @@ BuildRequires:	CGAL-devel >= 5.4
 %endif
 
 %if 0%{?rhel} && 0%{?rhel} >= 9
-Version:	2.2.0
+Version:	2.3.0
 BuildRequires:	CGAL-devel >= 5.6
+BuildRequires:	json-devel >= 3.11
 %endif
 
 %if 0%{?fedora} && 0%{?fedora} >= 41
-Version:	2.2.0
+Version:	2.3.0
 BuildRequires:	CGAL-devel >= 5.6
+BuildRequires:	json-devel >= 3.11
 %endif
 
-Release:	6PGDG%{?dist}
+Release:	2PGDG%{?dist}
 License:	GLPLv2
 Source:		https://gitlab.com/sfcgal/SFCGAL/-/archive/v%{version}/SFCGAL-v%{version}.tar.gz
 
@@ -131,6 +134,13 @@ Development headers and libraries for SFCGAL.
 %{_libdir}/libSFCGAL.so*
 
 %changelog
+* Tue Sep 1 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.0-2PGDG
+- Add missing BR
+
+* Mon Jul 13 2026 Devrim Gunduz <devrim@gunduz.org> - 2.3.0-1PGDG
+- Update to 2.3.0 on RHEL 9+, Fedora and SLES 16per changes described at:
+  https://gitlab.com/sfcgal/SFCGAL/-/releases/v2.3.0
+
 * Mon Mar 23 2026 Christoph Berg <myon@debian.org> - 2.2.0-6PGDG
 - boost_system is still required on SLES
 

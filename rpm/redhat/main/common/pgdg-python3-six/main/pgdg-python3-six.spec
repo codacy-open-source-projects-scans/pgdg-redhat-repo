@@ -1,14 +1,19 @@
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} >= 1500
 %global	__ospython %{_bindir}/python3.11
@@ -17,7 +22,7 @@
 
 Name:		python%{python3_pkgversion}-six
 Version:	1.17.0
-Release:	1PGDG%{?dist}
+Release:	5PGDG%{?dist}
 Summary:	Python 2 and 3 compatibility utilities
 
 License:	MIT
@@ -27,6 +32,8 @@ Source0:	https://files.pythonhosted.org/packages/source/s/six/six-%{version}.tar
 BuildArch:	noarch
 
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
 %if 0%{?suse_version} >= 1500
 BuildRequires:	python-rpm-macros
 %else
@@ -56,6 +63,24 @@ of writing Python code that is compatible on both Python versions.}
 %pycached %{python3_sitelib}/six.py
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.17.0-5PGDG
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.17.0-4PGDG
+- Add missing BR
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.17.0-3PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.17.0-2PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Thu Oct 30 2025 Devrim Gunduz <devrim@gunduz.org> - 1.17.0-1PGDG
 - Update to 1.17.0. This indirectly fixes a longstanding self-obsolete problem.
   Thanks Lukas Schürmann for the report.

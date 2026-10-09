@@ -9,54 +9,54 @@
 # Include common values:
 source ~/bin/global.sh
 
-# Create logs directory if it doesn't exist
-mkdir -p ~/bin/logs
+# Parse command line arguments
+force_mode=0
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		--force)
+			force_mode=1
+			shift
+			;;
+		*)
+			break
+			;;
+	esac
+done
 
-# Function to log build failures
-log_build_failure() {
-	local package_name=$1
-	local pg_version=$2
-	local repo_type=$3
-	local timestamp=$(date '+%Y%m%d_%H%M%S')
-
-	log_file=~/bin/logs/${package_name}_pg${pg_version}_${repo_type}_${timestamp}.log
-
-	# Write failure information to log
-	{
-		echo "========================================="
-		echo "Build Failure Report"
-		echo "========================================="
-		echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
-		echo "Package: $package_name"
-		echo "PostgreSQL Version: ${pg_version:-N/A}"
-		echo "Repository Type: $repo_type"
-		echo "OS: $git_os"
-		echo "Package Version: ${packageVersion:-Unable to determine}"
-		echo "========================================="
-		echo ""
-	} > "$log_file"
-
-	echo "${red}Build failed. Log written to: $log_file${reset}"
-}
-
-# Throw an error if less than two arguments are supplied:
-if [ $# -le 1 ]
+# Throw an error if no package name is supplied:
+if [ $# -lt 1 ]
 then
 	echo
-	echo "${red}ERROR:${reset} This script must be run with at least two parameters:"
-	echo "       package name, package version"
-	echo "       and optional: The actual package name to sign, and also the PostgreSQL version to build against"
+	echo "${red}ERROR:${reset} This script must be run with at least the name of the package:"
+	echo "       $0 [--force] <git-package-name> [pg-version]"
+	echo "       pg-version restricts the build to one PostgreSQL major version."
 	echo
 	exit 1
 fi
 
+# Stop now if packages cannot be signed, instead of after a long build:
+check_gpg_agent || exit 1
+
+# Set when a package which was built is not signed, so that the script exits
+# with an error at the end:
+sign_failed=0
+
 # The name of the package in the git tree (pgpool-II-41, postgresql-16, etc)
 packagename=$1
-# Actual package name to sign (postgresql16, pgpool-II, postgis34, etc).
-signPackageName=$2
 # Optional: The PostgreSQL major version the package will be built against.
 # Leave empty to build against all supported PostgreSQL versions.
-buildVersion=$3
+buildVersion=$2
+
+# The second parameter used to be the package name to sign, and the PostgreSQL
+# version the third one. Reject commands in the old form, instead of
+# ignoring the version or taking the sign name as one:
+if [ $# -gt 2 ] || [[ -n "${buildVersion}" && ! "${buildVersion}" =~ ^[0-9]+$ ]]
+then
+	echo "${red}ERROR:${reset} Usage: $0 [--force] <git-package-name> [pg-version]"
+	echo "       The package name to sign is not given any more; the PostgreSQL version is"
+	echo "       now the second parameter, e.g. $0 postgis34 17"
+	exit 1
+fi
 
 #################################
 #	Build packages		#
@@ -72,7 +72,7 @@ buildVersion=$3
 
 if [ -x ~/git/pgrpms/rpm/redhat/main/non-free/$packagename/$git_os ]
 then
-	# Build package against all PostgreSQL versions if 4th parameter is not given:
+	# Build package against all PostgreSQL versions if pg-version is not given:
 	if [ "${buildVersion}" == "" ]
 	then
 		:
@@ -90,9 +90,15 @@ then
 	do
 		if [ -x ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os ]
 		then
+			cd ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os
+			if [ $force_mode -eq 0 ] && is_already_built ~/rpm${packageBuildVersion}/RPMS $packageBuildVersion; then
+				echo "${yellow}$packagename is already built ($already_built_version) against PostgreSQL $packageBuildVersion. Skipping (use --force to rebuild).${reset}"
+				sign_built_rpms rpm${packageBuildVersion} $packageBuildVersion
+				cd
+				continue
+			fi
 			echo "${green}Ok, building $packagename on $git_os against PostgreSQL $packageBuildVersion${reset}"
 			sleep 1
-			cd ~/git/pgrpms/rpm/redhat/$packageBuildVersion/$packagename/$git_os
 			echo "time make build${packageBuildVersion}"
 			if ! time make build${packageBuildVersion}; then
 				packageVersion=`rpmspec --define "pgmajorversion ${pgAlphaVersion}" -q --qf "%{name}: %{Version}\n" *.spec 2>/dev/null |head -n 1 | awk -F ': ' '{print $2}'`
@@ -102,13 +108,13 @@ then
 			fi
 			# Get the package version after building the package so that we get the latest version:
 			packageVersion=`rpmspec --define "pgmajorversion ${pgAlphaVersion}" -q --qf "%{name}: %{Version}\n" *.spec |head -n 1 | awk -F ': ' '{print $2}'`
+			sign_built_rpms rpm${packageBuildVersion} $packageBuildVersion || sign_failed=1
 			cd
-			sign_package rpm${packageBuildVersion}
 		else
 			echo "${yellow}Skipping PostgreSQL $packageBuildVersion - package not available for this version${reset}"
 		fi
 	done
-	exit 0
+	exit $sign_failed
 fi # End of non-free build
 
 #################################

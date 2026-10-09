@@ -17,31 +17,37 @@ source "$CONFIG_FILE"
 
 # Runtime variables
 OS=""
-ARCH=""
-VER=""
-ARCH_LIST=()				# List of architectures to sync (populated based on --arch or all for OS)
+ARCH_ARGS=()				# Architectures requested via one or more --arch
+VER_ARGS=()				# OS versions requested via one or more --ver
 DRY_RUN=false
 DEBUG=false
 SYNC_ITEMS=()				# Items to sync (common, extras, testing, non-free, or PG versions)
-SYNC_PG_VERSIONS=()			# PG versions to sync based on --sync option
 
 # Help
 usage() {
 	cat <<EOF
-Usage: $0 --os <os> --ver <version> [options]
+Usage: $0 [--os <os>] [--ver <version>] [options]
 
-Required:
+Optional:
   --os           Operating system: ${VALID_OS[*]}
+                 If not specified, syncs all supported operating systems
 
-Optional:
-  --ver          OS version: redhat (${VALID_VER_redhat[*]}), fedora (${VALID_VER_fedora[*]}), sles (${VALID_VER_sles[*]}), opensuse (${VALID_VER_opensuse[*]})
-                 If not specified, syncs all versions for the OS
+  --ver          OS version: redhat (${VALID_VER_redhat[*]}), fedora (${VALID_VER_fedora[*]}), sles (${VALID_VER_sles[*]}), opensuse (${VALID_VER_opensuse[*]}), amzn (${VALID_VER_amzn[*]})
+                 Can be given multiple times to sync several versions (e.g. --ver 10.0 --ver 10.1)
+                 If not specified, syncs all versions for the OS(es) being processed
+                 If --os is also omitted, an OS for which this version is not valid is skipped
 
-Optional:
   --arch         Architecture: aarch64, ppc64le, x86_64
-                 If not specified, syncs all supported architectures for the OS
-  --sync         Sync specific items: common, extras, testing, non-free, or PG version (e.g. 18)
+                 Can be given multiple times to sync several architectures (e.g. --arch x86_64 --arch aarch64)
+                 If not specified, syncs all supported architectures for the OS(es) being processed
+                 If --os is also omitted, an OS for which this architecture is not valid is skipped
+
+  --sync         Sync specific items: common, extras, testing, non-free, pg, or PG version (e.g. 18)
                  Can specify multiple items (e.g. --sync common 18 17)
+                 "pg" is shorthand for every stable PG version (${PG_ALL_VERSIONS[*]})
+                 Versions that only exist in testing (e.g. 19, 20) must be combined with
+                 "testing" (e.g. --sync testing 19), and restrict the testing sync to just
+                 that version instead of all testing versions
                  If not specified, syncs all available repos
   --dry-run      Simulate the sync without transferring files
   --debug        Show detailed debug output
@@ -50,15 +56,18 @@ Examples:
   $0 --os redhat --ver 9.7 --sync common
   $0 --os sles --ver 15.6 --arch x86_64 --sync 18 17
   $0 --os fedora --ver 43 --sync common extras testing
+  $0 --os redhat --ver 10.0 --ver 10.1 --ver 10.2 --arch aarch64 --arch x86_64 --sync pg
+  $0 --sync common
 
 EOF
-	exit 1
+	exit "${1:-1}"
 }
 
 # Contains helper
 contains() {
 	local val="$1"
 	shift
+	local item
 	for item in "$@"; do [[ "$item" == "$val" ]] && return 0; done
 	return 1
 }
@@ -66,16 +75,19 @@ contains() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
 	case "$1" in
+	--help|-h)
+		usage 0
+		;;
 	--os)
 		OS="$2"
 		shift 2
 		;;
 	--arch)
-		ARCH="$2"
+		ARCH_ARGS+=("$2")
 		shift 2
 		;;
 	--ver)
-		VER="$2"
+		VER_ARGS+=("$2")
 		shift 2
 		;;
 	--sync)
@@ -100,103 +112,45 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-# Determine OS-specific settings
-case "$OS" in
-redhat)
-	VALID_ARCH=("${VALID_ARCH_redhat[@]}")
-	VALID_VER=("${VALID_VER_redhat[@]}")
-	osname="${OSNAME_redhat}"
-	osdistro="${OSDISTRO_redhat}"
-	EXTRASREPOSENABLED=${EXTRASREPOSENABLED_redhat}
-	SYNCTESTINGREPOS=${SYNCTESTINGREPOS_redhat}
-	SYNCNONFREEREPOS=${SYNCNONFREEREPOS_redhat}
-	;;
-fedora)
-	VALID_ARCH=("${VALID_ARCH_fedora[@]}")
-	VALID_VER=("${VALID_VER_fedora[@]}")
-	osname="${OSNAME_fedora}"
-	osdistro="${OSDISTRO_fedora}"
-	EXTRASREPOSENABLED=${EXTRASREPOSENABLED_fedora}
-	SYNCTESTINGREPOS=${SYNCTESTINGREPOS_fedora}
-	SYNCNONFREEREPOS=${SYNCNONFREEREPOS_fedora}
-	;;
-sles)
-	VALID_ARCH=("${VALID_ARCH_sles[@]}")
-	VALID_VER=("${VALID_VER_sles[@]}")
-	osname="${OSNAME_sles}"
-	osdistro="${OSDISTRO_sles}"
-	EXTRASREPOSENABLED=${EXTRASREPOSENABLED_sles}
-	SYNCTESTINGREPOS=${SYNCTESTINGREPOS_sles}
-	SYNCNONFREEREPOS=${SYNCNONFREEREPOS_sles}
-	;;
-opensuse)
-	VALID_ARCH=("${VALID_ARCH_opensuse[@]}")
-	VALID_VER=("${VALID_VER_opensuse[@]}")
-	osname="${OSNAME_opensuse}"
-	osdistro="${OSDISTRO_opensuse}"
-	EXTRASREPOSENABLED=${EXTRASREPOSENABLED_opensuse}
-	SYNCTESTINGREPOS=${SYNCTESTINGREPOS_opensuse}
-	SYNCNONFREEREPOS=${SYNCNONFREEREPOS_opensuse}
-	;;
-*)
-	echo "Unsupported OS: $OS"
-	usage
-	;;
-esac
-
-# Validation
-[[ -z "$OS" ]] && usage
-
-if ! contains "$OS" "${VALID_OS[@]}"; then
+# Validate --os, if given
+if [[ -n "$OS" ]] && ! contains "$OS" "${VALID_OS[@]}"; then
 	echo "Invalid OS: $OS"
 	usage
 fi
 
-# Populate VER_LIST based on --ver parameter
-declare -a VER_LIST
-if [[ -z "$VER" ]]; then
-	# If no version specified, sync all versions for this OS
-	VER_LIST=("${VALID_VER[@]}")
-	echo "No version specified, will sync all versions for $OS: ${VER_LIST[*]}"
+# Was --ver explicitly requested? Captured now, before VER_LIST/the version
+# loop reuse "VER" as a loop variable.
+if [[ ${#VER_ARGS[@]} -gt 0 ]]; then
+	VER_EXPLICIT=true
 else
-	# Validate the specified version
-	if ! contains "$VER" "${VALID_VER[@]}"; then
-		echo "Invalid version '$VER' for OS '$OS'"
-		echo "Valid versions: ${VALID_VER[*]}"
-		exit 1
-	fi
-	VER_LIST=("$VER")
+	VER_EXPLICIT=false
 fi
 
-# Populate ARCH_LIST based on --arch parameter
-if [[ -z "$ARCH" ]]; then
-	# If no arch specified, sync all architectures for this OS
-	ARCH_LIST=("${VALID_ARCH[@]}")
-	echo "No architecture specified, will sync all architectures for $OS: ${ARCH_LIST[*]}"
+# Determine which OS(es) to process. If --os wasn't given, process all of
+# them; a --ver/--arch that doesn't apply to a particular OS then just
+# skips that OS rather than erroring out (see STRICT_OS below).
+declare -a OS_LIST
+if [[ -n "$OS" ]]; then
+	OS_LIST=("$OS")
+	STRICT_OS=true
 else
-	# Validate the specified architecture
-	if ! contains "$ARCH" "${VALID_ARCH[@]}"; then
-		echo "Invalid arch: $ARCH"
-		usage
-	fi
-	ARCH_LIST=("$ARCH")
+	OS_LIST=("${VALID_OS[@]}")
+	STRICT_OS=false
+	echo "No OS specified, will sync all supported operating systems: ${OS_LIST[*]}"
 fi
 
-# Process SYNC_ITEMS to determine what to sync
+# Process SYNC_ITEMS to determine what to sync. This is OS-independent:
+# the only OS-specific part is which defaults apply when --sync is omitted,
+# which is resolved per-OS inside process_os().
 SYNC_COMMON=0
 SYNC_EXTRAS=0
 SYNC_TESTING=0
 SYNC_NONFREE=0
+SYNC_PG_VERSIONS=()
+HAVE_SYNC_ITEMS=false
 
-if [[ ${#SYNC_ITEMS[@]} -eq 0 ]]; then
-	# If no --sync specified, sync everything available
-	SYNC_COMMON=1
-	SYNC_EXTRAS=$EXTRASREPOSENABLED
-	SYNC_TESTING=$SYNCTESTINGREPOS
-	SYNC_NONFREE=$SYNCNONFREEREPOS
-	SYNC_PG_VERSIONS=("${PG_ALL_VERSIONS[@]}")
-else
-	# Parse SYNC_ITEMS
+if [[ ${#SYNC_ITEMS[@]} -gt 0 ]]; then
+	HAVE_SYNC_ITEMS=true
 	for item in "${SYNC_ITEMS[@]}"; do
 		case "$item" in
 		common)
@@ -211,173 +165,334 @@ else
 		non-free)
 			SYNC_NONFREE=1
 			;;
-		18|17|16|15|14|13|12|11|10)
-			SYNC_PG_VERSIONS+=("$item")
+		pg)
+			SYNC_PG_VERSIONS+=("${PG_ALL_VERSIONS[@]}")
 			;;
 		*)
-			echo "Invalid sync item: $item"
-			echo "Valid items: common, extras, testing, non-free, or PG version (18, 17, 16, 15, 14, etc.)"
-			exit 1
+			if contains "$item" "${PG_ALL_VERSIONS[@]}" "${PG_TEST_VERSIONS[@]}"; then
+				SYNC_PG_VERSIONS+=("$item")
+			else
+				echo "Invalid sync item: $item"
+				echo "Valid items: common, extras, testing, non-free, pg, or PG version (stable: ${PG_ALL_VERSIONS[*]}; testing-only, requires 'testing': ${PG_TEST_VERSIONS[*]})"
+				exit 1
+			fi
 			;;
 		esac
 	done
+
+	# Dedup SYNC_PG_VERSIONS in case "pg" was combined with an explicit
+	# version, or an item was repeated.
+	if [[ ${#SYNC_PG_VERSIONS[@]} -gt 1 ]]; then
+		SYNC_PG_VERSIONS_DEDUP=()
+		for item in "${SYNC_PG_VERSIONS[@]}"; do
+			contains "$item" "${SYNC_PG_VERSIONS_DEDUP[@]}" || SYNC_PG_VERSIONS_DEDUP+=("$item")
+		done
+		SYNC_PG_VERSIONS=("${SYNC_PG_VERSIONS_DEDUP[@]}")
+		unset SYNC_PG_VERSIONS_DEDUP
+	fi
 fi
 
-# Debug output
-if $DEBUG; then
-	echo "[DEBUG] OS:   $OS"
-	echo "[DEBUG] ARCH: $ARCH"
-	echo "[DEBUG] ARCH_LIST: ${ARCH_LIST[*]}"
-	echo "[DEBUG] VER:  $VER"
-	echo "[DEBUG] VER_LIST: ${VER_LIST[*]}"
-	echo "[DEBUG] osname: $osname"
-	echo "[DEBUG] osdistro: $osdistro"
-	echo "[DEBUG] EXTRASREPOSENABLED: $EXTRASREPOSENABLED"
-	echo "[DEBUG] SYNCTESTINGREPOS: $SYNCTESTINGREPOS"
-	echo "[DEBUG] SYNC_COMMON: $SYNC_COMMON"
-	echo "[DEBUG] SYNC_EXTRAS: $SYNC_EXTRAS"
-	echo "[DEBUG] SYNC_TESTING: $SYNC_TESTING"
-	echo "[DEBUG] SYNC_NONFREE: $SYNC_NONFREE"
-	echo "[DEBUG] SYNC_PG_VERSIONS: ${SYNC_PG_VERSIONS[*]}"
-	echo "[DEBUG] Dry run:    $DRY_RUN"
+# Was a PG version explicitly requested via --sync (as opposed to the
+# per-OS default list of stable versions used when --sync is omitted)?
+# The testing loop in process_os() uses this to decide whether to sync
+# every version in PG_TEST_VERSIONS or only the ones requested.
+HAVE_EXPLICIT_PG_VERSIONS=false
+if $HAVE_SYNC_ITEMS && [[ ${#SYNC_PG_VERSIONS[@]} -gt 0 ]]; then
+	HAVE_EXPLICIT_PG_VERSIONS=true
 fi
 
-# Dry-run mode
-if $DRY_RUN; then
-	echo "[DRY-RUN] Would sync $OS versions: ${VER_LIST[*]}"
-	echo "[DRY-RUN] Architectures: ${ARCH_LIST[*]}"
-	echo "[DRY-RUN] SYNC_COMMON: $SYNC_COMMON"
-	echo "[DRY-RUN] SYNC_EXTRAS: $SYNC_EXTRAS"
-	echo "[DRY-RUN] SYNC_TESTING: $SYNC_TESTING"
-	echo "[DRY-RUN] SYNC_NONFREE: $SYNC_NONFREE"
-	echo "[DRY-RUN] SYNC_PG_VERSIONS: ${SYNC_PG_VERSIONS[*]}"
-	exit 0
-fi
+# Process a single OS: resolves its version/arch/feature-flag settings,
+# then runs the sync loop for it. Skips the OS (in non-strict/--os-omitted
+# mode) if the requested --ver or --arch doesn't apply to it.
+process_os() {
+	local OS="$1"
 
-# Run the sync command. This is the main loop.
-echo "Starting sync operation for $OS"
-echo "Versions to sync: ${VER_LIST[*]}"
-echo "Architectures to sync: ${ARCH_LIST[*]}"
+	# Determine OS-specific settings
+	local -n ver_ref="VALID_VER_${OS}"
+	local -a VALID_VER=("${ver_ref[@]}")
 
-# Loop through each version
-for VER in "${VER_LIST[@]}"; do
-	echo ""
-	echo "================================================"
-	echo "Processing version: $OS $VER"
-	echo "================================================"
+	local -n nonfree_ver_ref="VALID_NONFREE_VER_${OS}"
+	local -a VALID_NONFREE_VER=("${nonfree_ver_ref[@]}")
+	local -n nonfree_arch_ref="VALID_NONFREE_ARCH_${OS}"
+	local -a VALID_NONFREE_ARCH=("${nonfree_arch_ref[@]}")
 
-	# Loop through each architecture
-	for osarch in "${ARCH_LIST[@]}"; do
-		echo ""
-		echo "  =============================================="
-		echo "  Processing architecture: $osarch"
-		echo "  =============================================="
+	local osname_var="OSNAME_${OS}"
+	local osname="${!osname_var}"
+	local osdistro_var="OSDISTRO_${OS}"
+	local osdistro="${!osdistro_var}"
+	local extras_var="EXTRASREPOSENABLED_${OS}"
+	local EXTRASREPOSENABLED="${!extras_var}"
+	local testing_var="SYNCTESTINGREPOS_${OS}"
+	local SYNCTESTINGREPOS="${!testing_var}"
+	local nonfree_var="SYNCNONFREEREPOS_${OS}"
+	local SYNCNONFREEREPOS="${!nonfree_var}"
 
-		# Determine source host based on OS and arch
-		if [[ "$OS" == "redhat" ]]; then
-			SOURCE_HOST="pgrpms-el${VER}-${osarch}.postgresql.org"
-		elif [[ "$OS" == "fedora" ]]; then
-			SOURCE_HOST="pgrpms-fedora${VER}-${osarch}.postgresql.org"
-		elif [[ "$OS" == "sles" ]]; then
-			SOURCE_HOST="pgrpms-sles${VER}-${osarch}.postgresql.org"
-		elif [[ "$OS" == "opensuse" ]]; then
-			SOURCE_HOST="pgrpms-opensuse${VER}-${osarch}.postgresql.org"
+	# Populate VER_LIST based on --ver parameter(s)
+	local -a VER_LIST
+	if [[ ${#VER_ARGS[@]} -eq 0 ]]; then
+		VER_LIST=("${VALID_VER[@]}")
+		echo "No version specified, will sync all versions for $OS: ${VER_LIST[*]}"
+	else
+		VER_LIST=()
+		for v in "${VER_ARGS[@]}"; do
+			if contains "$v" "${VALID_VER[@]}"; then
+				VER_LIST+=("$v")
+			elif $STRICT_OS; then
+				echo "Invalid version '$v' for OS '$OS'"
+				echo "Valid versions: ${VALID_VER[*]}"
+				exit 1
+			else
+				$DEBUG && echo "[DEBUG] Version $v not valid for $OS, skipping"
+			fi
+		done
+		if [[ ${#VER_LIST[@]} -eq 0 ]]; then
+			$DEBUG && echo "[DEBUG] No requested versions valid for $OS, skipping $OS"
+			return 0
+		fi
+	fi
+
+	# Resolve which repo types to sync for this OS (architecture-independent)
+	local os_sync_common os_sync_extras os_sync_testing os_sync_nonfree
+	local -a os_sync_pg_versions
+	if $HAVE_SYNC_ITEMS; then
+		os_sync_common=$SYNC_COMMON
+		os_sync_extras=$SYNC_EXTRAS
+		os_sync_testing=$SYNC_TESTING
+		os_sync_nonfree=$SYNC_NONFREE
+		os_sync_pg_versions=("${SYNC_PG_VERSIONS[@]}")
+	else
+		os_sync_common=1
+		os_sync_extras=$EXTRASREPOSENABLED
+		os_sync_testing=$SYNCTESTINGREPOS
+		os_sync_nonfree=$SYNCNONFREEREPOS
+		os_sync_pg_versions=("${PG_ALL_VERSIONS[@]}")
+	fi
+
+	echo "Starting sync operation for $OS"
+	echo "Versions to sync: ${VER_LIST[*]}"
+
+	# Loop through each version
+	for VER in "${VER_LIST[@]}"; do
+		# Resolve the architectures valid for this specific OS+version pair
+		# (not every version supports every arch in VALID_ARCH_<os> — see
+		# VALID_ARCH_OVERRIDES in sync_pgdg_rpms_config.sh)
+		local -a ver_valid_arch
+		get_valid_arch_for "$OS" "$VER" ver_valid_arch
+
+		local -a ARCH_LIST
+		if [[ ${#ARCH_ARGS[@]} -eq 0 ]]; then
+			ARCH_LIST=("${ver_valid_arch[@]}")
+			echo "No architecture specified, will sync all architectures for $OS $VER: ${ARCH_LIST[*]}"
 		else
-			echo "Unsupported OS: $OS"
-			exit 1
-		fi
-
-		distrover=$VER
-		tmp_var="BASE_DIR_${OS}"
-		BASE_DIR_OS="${!tmp_var}"
-		sleep 1
-
-		echo "  Syncing : $osname-$distrover ($osarch)"
-
-		# Sync non-common repo (specific PG versions)
-		if [[ ${#SYNC_PG_VERSIONS[@]} -gt 0 ]]; then
-			for pgrelease in "${SYNC_PG_VERSIONS[@]}"; do
-				echo "  Syncing : $osname-$distrover-PG$pgrelease"
-
-				RPM_DIR=/var/lib/pgsql/rpm$pgrelease/ALLRPMS
-
-				if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$RPM_DIR/ $BASE_DIR_OS/$pgrelease/$osdistro/$osname-$distrover-$osarch; then
-					echo "  [ERROR] Rsync failed for PG $pgrelease ($osname-$distrover-$osarch)" >&2
-					sync_had_errors=1
+			ARCH_LIST=()
+			for a in "${ARCH_ARGS[@]}"; do
+				if contains "$a" "${ver_valid_arch[@]}"; then
+					ARCH_LIST+=("$a")
+				elif $STRICT_OS && $VER_EXPLICIT; then
+					echo "Invalid arch '$a' for $OS $VER"
+					echo "Valid architectures for $OS $VER: ${ver_valid_arch[*]}"
+					exit 1
+				else
+					$DEBUG && echo "[DEBUG] Arch $a not valid for $OS $VER, skipping"
 				fi
 			done
-		fi
-
-		# Sync common repo
-		if [[ "$SYNC_COMMON" -eq 1 ]]; then
-			echo "  Syncing : $osname-$distrover-common repo"
-			COMMON_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLRPMS
-
-			if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$COMMON_RPM_DIR/ $BASE_DIR_OS/common/$osdistro/$osname-$distrover-$osarch; then
-				echo "  [ERROR] Rsync failed for common repo ($osname-$distrover-$osarch)" >&2
-				sync_had_errors=1
+			if [[ ${#ARCH_LIST[@]} -eq 0 ]]; then
+				$DEBUG && echo "[DEBUG] No requested architectures valid for $OS $VER, skipping $OS $VER"
+				continue
 			fi
 		fi
 
-		# Sync extras repo
-		if [[ "$SYNC_EXTRAS" -eq 1 ]]; then
-			echo "  Syncing : $osname-$distrover-extras repo"
-			EXTRAS_RPM_DIR=/var/lib/pgsql/pgdg.extras/ALLRPMS
-
-			if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$EXTRAS_RPM_DIR/ $BASE_DIR_OS/extras/$osdistro/$osname-$distrover-$osarch; then
-				echo "  [ERROR] Rsync failed for Extras repo ($osname-$distrover-$osarch)" >&2
-				sync_had_errors=1
-			fi
+		# Debug output
+		if $DEBUG; then
+			echo "[DEBUG] OS:   $OS"
+			echo "[DEBUG] VER:  $VER"
+			echo "[DEBUG] ARCH_ARGS (requested): ${ARCH_ARGS[*]}"
+			echo "[DEBUG] ARCH_LIST: ${ARCH_LIST[*]}"
+			echo "[DEBUG] osname: $osname"
+			echo "[DEBUG] osdistro: $osdistro"
+			echo "[DEBUG] EXTRASREPOSENABLED: $EXTRASREPOSENABLED"
+			echo "[DEBUG] SYNCTESTINGREPOS: $SYNCTESTINGREPOS"
+			echo "[DEBUG] SYNC_COMMON: $os_sync_common"
+			echo "[DEBUG] SYNC_EXTRAS: $os_sync_extras"
+			echo "[DEBUG] SYNC_TESTING: $os_sync_testing"
+			echo "[DEBUG] SYNC_NONFREE: $os_sync_nonfree"
+			echo "[DEBUG] SYNC_PG_VERSIONS: ${os_sync_pg_versions[*]}"
+			echo "[DEBUG] Dry run:    $DRY_RUN"
 		fi
 
-		# Sync testing repos
-		if [[ "$SYNC_TESTING" -eq 1 ]]; then
-			echo "  Syncing : $osname-$distrover-common testing repo"
-			COMMONTESTING_RPM_DIR=/var/lib/pgsql/rpmcommontesting/ALLRPMS
-
-			if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$COMMONTESTING_RPM_DIR/ $BASE_DIR_OS/testing/common/$osdistro/$osname-$distrover-$osarch; then
-				echo "  [ERROR] Rsync failed for commontesting repo ($osname-$distrover-$osarch)" >&2
-				sync_had_errors=1
-			fi
-
-			# Sync testing repos for specific PG versions
-			for pgtestrelease in "${PG_TEST_VERSIONS[@]}"; do
-				echo "  Syncing : $osname-$distrover-PG$pgtestrelease testing repo"
-				testdir="rpm${pgtestrelease}testing"
-				TESTING_RPM_DIR=/var/lib/pgsql/$testdir/ALLRPMS
-
-				if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$TESTING_RPM_DIR/ $BASE_DIR_OS/testing/$pgtestrelease/$osdistro/$osname-$distrover-$osarch; then
-					echo "  [ERROR] Rsync failed for PG $pgtestrelease testing repo ($osname-$distrover-$osarch)" >&2
-					sync_had_errors=1
-				fi
-			done
+		# Dry-run mode
+		if $DRY_RUN; then
+			echo "[DRY-RUN] Would sync $OS $VER"
+			echo "[DRY-RUN] Architectures: ${ARCH_LIST[*]}"
+			echo "[DRY-RUN] SYNC_COMMON: $os_sync_common"
+			echo "[DRY-RUN] SYNC_EXTRAS: $os_sync_extras"
+			echo "[DRY-RUN] SYNC_TESTING: $os_sync_testing"
+			echo "[DRY-RUN] SYNC_NONFREE: $os_sync_nonfree"
+			echo "[DRY-RUN] SYNC_PG_VERSIONS: ${os_sync_pg_versions[*]}"
+			continue
 		fi
 
-		# Sync non-free repos
-		if [[ "$SYNC_NONFREE" -eq 1 ]]; then
-			# Determine non-free source host based on OS and arch
+		echo ""
+		echo "================================================"
+		echo "Processing version: $OS $VER"
+		echo "================================================"
+
+		# Loop through each architecture
+		for osarch in "${ARCH_LIST[@]}"; do
+			echo ""
+			echo "  =============================================="
+			echo "  Processing architecture: $osarch"
+			echo "  =============================================="
+
+			# Determine source host based on OS and arch
 			if [[ "$OS" == "redhat" ]]; then
-				NONFREE_SOURCE_HOST="pgrpms-non-free-el${VER}-${osarch}.postgresql.org"
+				SOURCE_HOST="pgrpms-el${VER}-${osarch}.postgresql.org"
 			elif [[ "$OS" == "fedora" ]]; then
-				NONFREE_SOURCE_HOST="pgrpms-non-free-fedora${VER}-${osarch}.postgresql.org"
+				SOURCE_HOST="pgrpms-fedora${VER}-${osarch}.postgresql.org"
 			elif [[ "$OS" == "sles" ]]; then
-				NONFREE_SOURCE_HOST="pgrpms-non-free-sles${VER}-${osarch}.postgresql.org"
+				SOURCE_HOST="pgrpms-sles${VER}-${osarch}.postgresql.org"
 			elif [[ "$OS" == "opensuse" ]]; then
-				NONFREE_SOURCE_HOST="pgrpms-non-free-opensuse${VER}-${osarch}.postgresql.org"
+				SOURCE_HOST="pgrpms-opensuse${VER}-${osarch}.postgresql.org"
+			elif [[ "$OS" == "amzn" ]]; then
+				SOURCE_HOST="pgrpms-amzn${VER}-${osarch}.postgresql.org"
+			else
+				echo "Unsupported OS: $OS"
+				exit 1
 			fi
 
-			for pgnonfreerelease in "${PG_ALL_VERSIONS[@]}"; do
-				echo "  Syncing : $osname-$distrover-PG$pgnonfreerelease non-free repo"
-				NONFREE_RPM_DIR=/var/lib/pgsql/rpm${pgnonfreerelease}/ALLRPMS
+			distrover=$VER
+			tmp_var="BASE_DIR_${OS}"
+			BASE_DIR_OS="${!tmp_var}"
+			sleep 1
 
-				if ! rsync -ave ssh --delete --delete-missing-args "$NONFREE_SOURCE_HOST":$NONFREE_RPM_DIR/ $BASE_DIR_OS/non-free/$pgnonfreerelease/$osdistro/$osname-$distrover-$osarch; then
-					echo "  [ERROR] Rsync failed for PG $pgnonfreerelease non-free repo ($osname-$distrover-$osarch)" >&2
+			echo "  Syncing : $osname-$distrover ($osarch)"
+
+			# Sync non-common repo (specific PG versions)
+			if [[ ${#os_sync_pg_versions[@]} -gt 0 ]]; then
+				for pgrelease in "${os_sync_pg_versions[@]}"; do
+					if ! contains "$pgrelease" "${PG_ALL_VERSIONS[@]}"; then
+						echo "  [WARN] PG $pgrelease has no stable repo, skipping (pass 'testing' to sync its testing repo)"
+						continue
+					fi
+					echo "  Syncing : $osname-$distrover-PG$pgrelease"
+
+					RPM_DIR=/var/lib/pgsql/rpm$pgrelease/ALLRPMS
+
+					if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$RPM_DIR/ $BASE_DIR_OS/$pgrelease/$osdistro/$osname-$distrover-$osarch; then
+						echo "  [ERROR] Rsync failed for PG $pgrelease ($osname-$distrover-$osarch)" >&2
+						sync_had_errors=1
+					fi
+				done
+			fi
+
+			# Sync common repo
+			if [[ "$os_sync_common" -eq 1 ]]; then
+				echo "  Syncing : $osname-$distrover-common repo"
+				COMMON_RPM_DIR=/var/lib/pgsql/rpmcommon/ALLRPMS
+
+				if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$COMMON_RPM_DIR/ $BASE_DIR_OS/common/$osdistro/$osname-$distrover-$osarch; then
+					echo "  [ERROR] Rsync failed for common repo ($osname-$distrover-$osarch)" >&2
 					sync_had_errors=1
 				fi
-			done
-		fi
-	done  # End of ARCH_LIST loop
-done  # End of VER_LIST loop
+			fi
+
+			# Sync extras repo
+			if [[ "$os_sync_extras" -eq 1 ]]; then
+				echo "  Syncing : $osname-$distrover-extras repo"
+				EXTRAS_RPM_DIR=/var/lib/pgsql/pgdg.extras/ALLRPMS
+
+				if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$EXTRAS_RPM_DIR/ $BASE_DIR_OS/extras/$osdistro/$osname-$distrover-$osarch; then
+					echo "  [ERROR] Rsync failed for Extras repo ($osname-$distrover-$osarch)" >&2
+					sync_had_errors=1
+				fi
+			fi
+
+			# Sync testing repos
+			if [[ "$os_sync_testing" -eq 1 ]]; then
+				echo "  Syncing : $osname-$distrover-common testing repo"
+				COMMONTESTING_RPM_DIR=/var/lib/pgsql/rpmcommontesting/ALLRPMS
+
+				if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$COMMONTESTING_RPM_DIR/ $BASE_DIR_OS/testing/common/$osdistro/$osname-$distrover-$osarch; then
+					echo "  [ERROR] Rsync failed for commontesting repo ($osname-$distrover-$osarch)" >&2
+					sync_had_errors=1
+				fi
+
+				# Sync extras testing repo
+				if [[ "$EXTRASREPOSENABLED" -eq 1 ]]; then
+					echo "  Syncing : $osname-$distrover-extras testing repo"
+					EXTRASTESTING_RPM_DIR=/var/lib/pgsql/pgdg.extrastesting/ALLRPMS
+
+					if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$EXTRASTESTING_RPM_DIR/ $BASE_DIR_OS/testing/extras/$osdistro/$osname-$distrover-$osarch; then
+						echo "  [ERROR] Rsync failed for extras testing repo ($osname-$distrover-$osarch)" >&2
+						sync_had_errors=1
+					fi
+				fi
+
+				# Sync testing repos for specific PG versions. If specific PG
+				# versions were explicitly requested via --sync, restrict the
+				# testing sync to those (intersected with PG_TEST_VERSIONS);
+				# otherwise sync every version in PG_TEST_VERSIONS (default).
+				local -a testing_pg_versions
+				if $HAVE_EXPLICIT_PG_VERSIONS; then
+					testing_pg_versions=()
+					for v in "${os_sync_pg_versions[@]}"; do
+						contains "$v" "${PG_TEST_VERSIONS[@]}" && testing_pg_versions+=("$v")
+					done
+				else
+					testing_pg_versions=("${PG_TEST_VERSIONS[@]}")
+				fi
+
+				for pgtestrelease in "${testing_pg_versions[@]}"; do
+					echo "  Syncing : $osname-$distrover-PG$pgtestrelease testing repo"
+					testdir="rpm${pgtestrelease}testing"
+					TESTING_RPM_DIR=/var/lib/pgsql/$testdir/ALLRPMS
+
+					if ! rsync -ave ssh --delete --delete-missing-args "$SOURCE_HOST":$TESTING_RPM_DIR/ $BASE_DIR_OS/testing/$pgtestrelease/$osdistro/$osname-$distrover-$osarch; then
+						echo "  [ERROR] Rsync failed for PG $pgtestrelease testing repo ($osname-$distrover-$osarch)" >&2
+						sync_had_errors=1
+					fi
+				done
+			fi
+
+			# Sync non-free repos (only where a non-free repo actually
+			# exists for this OS/version/arch combination)
+			if [[ "$os_sync_nonfree" -eq 1 ]]; then
+				if ! contains "$VER" "${VALID_NONFREE_VER[@]}"; then
+					$DEBUG && echo "  [DEBUG] Non-free repo not available for $OS $VER, skipping"
+				elif ! contains "$osarch" "${VALID_NONFREE_ARCH[@]}"; then
+					$DEBUG && echo "  [DEBUG] Non-free repo not available for $OS $VER ($osarch), skipping"
+				else
+					# Determine non-free source host based on OS and arch
+					if [[ "$OS" == "redhat" ]]; then
+						NONFREE_SOURCE_HOST="pgrpms-non-free-el${VER}-${osarch}.postgresql.org"
+					elif [[ "$OS" == "fedora" ]]; then
+						NONFREE_SOURCE_HOST="pgrpms-non-free-fedora${VER}-${osarch}.postgresql.org"
+					elif [[ "$OS" == "sles" ]]; then
+						NONFREE_SOURCE_HOST="pgrpms-non-free-sles${VER}-${osarch}.postgresql.org"
+					elif [[ "$OS" == "opensuse" ]]; then
+						NONFREE_SOURCE_HOST="pgrpms-non-free-opensuse${VER}-${osarch}.postgresql.org"
+					elif [[ "$OS" == "amzn" ]]; then
+						NONFREE_SOURCE_HOST="pgrpms-non-free-amzn${VER}-${osarch}.postgresql.org"
+					fi
+
+					for pgnonfreerelease in "${PG_ALL_VERSIONS[@]}"; do
+						echo "  Syncing : $osname-$distrover-PG$pgnonfreerelease non-free repo"
+						NONFREE_RPM_DIR=/var/lib/pgsql/rpm${pgnonfreerelease}/ALLRPMS
+
+						if ! rsync -ave ssh --delete --delete-missing-args "$NONFREE_SOURCE_HOST":$NONFREE_RPM_DIR/ $BASE_DIR_OS/non-free/$pgnonfreerelease/$osdistro/$osname-$distrover-$osarch; then
+							echo "  [ERROR] Rsync failed for PG $pgnonfreerelease non-free repo ($osname-$distrover-$osarch)" >&2
+							sync_had_errors=1
+						fi
+					done
+				fi
+			fi
+		done  # End of ARCH_LIST loop
+	done  # End of VER_LIST loop
+}
+
+for OS in "${OS_LIST[@]}"; do
+	process_os "$OS"
+done
 
 # Finally tell us if there is an error in at least one of the steps above:
 

@@ -7,14 +7,14 @@
 %global _hardened_build 1
 
 Name:		haproxy
-Version:	3.3.7
+Version:	3.4.6
 Release:	1PGDG%{?dist}
 Summary:	HAProxy reverse proxy for high availability environments
 
 License:	GPLv2+
 
 URL:		https://www.haproxy.org/
-Source0:	https://www.haproxy.org/download/3.3/src/%{name}-%{version}.tar.gz
+Source0:	https://www.haproxy.org/download/3.4/src/%{name}-%{version}.tar.gz
 Source1:	%{name}.service
 Source2:	%{name}.cfg
 Source3:	%{name}.logrotate
@@ -29,7 +29,7 @@ BuildRequires:	systemd-devel systemd
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -149,6 +149,48 @@ done
 %{_tmpfilesdir}/%{name}.conf
 
 %changelog
+* Mon Sep 28 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.6-1PGDG
+- Update to 3.4.6 per changes described at:
+  https://www.mail-archive.com/haproxy@formilux.org/msg47531.html
+
+* Fri Sep 25 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.5-1PGDG
+- Update to 3.4.5 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47506.html
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.4-2PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.4-1PGDG
+- Update to 3.4.4 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47424.html
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.3-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Thu Jul 30 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.3-1PGDG
+- Update to 3.4.3 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47348.html
+
+* Tue Jul 7 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.2-1PGDG
+- Update to 3.4.2 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47291.html
+
+* Tue Jun 30 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.1-1PGDG
+- Update to 3.4.1 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47246.html
+
+* Sat Jun 6 2026 Devrim Gündüz <devrim@gunduz.org> 3.4.0-1PGDG
+- Update to 3.4.0 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47182.html
+
+* Wed May 13 2026 Devrim Gündüz <devrim@gunduz.org> 3.3.10-1PGDG
+- Update to 3.3.10 per changes described at:
+  https://mail-archive.com/haproxy@formilux.org/msg47108.html
+  https://mail-archive.com/haproxy@formilux.org/msg47083.html
+  https://mail-archive.com/haproxy@formilux.org/msg47055.html
+
 * Mon Apr 27 2026 Devrim Gündüz <devrim@gunduz.org> 3.3.7-1PGDG
 - Update to 3.3.7 per changes described at:
   https://mail-archive.com/haproxy@formilux.org/msg47012.html

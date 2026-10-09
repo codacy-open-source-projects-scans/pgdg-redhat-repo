@@ -1,6 +1,6 @@
 %global pgodbcmajver 18
 %global pgodbcmidver 00
-%global pgodbcminver 0001
+%global pgodbcminver 0004
 
 Name:		postgresql%{pgmajorversion}-odbc
 Summary:	PostgreSQL ODBC driver
@@ -12,7 +12,7 @@ URL:		https://odbc.postgresql.org/
 Source0:	https://github.com/postgresql-interfaces/psqlodbc/archive/refs/tags/REL-%{pgodbcmajver}_%{pgodbcmidver}_%{pgodbcminver}.tar.gz
 Source1:	acinclude.m4
 
-BuildRequires:	autoconf krb5-devel pam-devel automake
+BuildRequires:	autoconf krb5-devel pam-devel automake libtool
 BuildRequires:	pam-devel postgresql%{pgmajorversion}-devel
 BuildRequires:	unixODBC-devel
 
@@ -39,7 +39,7 @@ Requires:	libz1
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
@@ -96,6 +96,21 @@ popd
 %license license.txt
 
 %changelog
+* Mon Sep 14 2026 Devrim Gündüz <devrim@gunduz.org> - 18.00.0004-1PGDG
+- Update to 18.00.0004 per changes described at:
+  https://github.com/postgresql-interfaces/psqlodbc/releases/tag/REL-18_00_0004
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 18.00.0003-1PGDG
+- Update to 18.00.0003 per changes described at:
+  https://github.com/postgresql-interfaces/psqlodbc/releases/tag/REL-18_00_0003
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 18.00.0002-2PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Fri Jul 3 2026 Devrim Gündüz <devrim@gunduz.org> - 18.00.0002-1PGDG
+- Update to 18.00.0002 per changes described at:
+  https://github.com/postgresql-interfaces/psqlodbc/releases/tag/REL-18_00_0002
+
 * Mon Mar 23 2026 Devrim Gündüz <devrim@gunduz.org> - 18.00.0001-1PGDG
 - Update to 18.00.0001
 

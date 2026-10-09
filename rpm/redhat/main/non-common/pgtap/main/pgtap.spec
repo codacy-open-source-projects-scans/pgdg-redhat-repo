@@ -1,17 +1,26 @@
 %global sname	pgtap
 %global tapparserversion	3.37
 
+%{!?runselftest:%global runselftest 0}
+
 Summary:	Unit testing for PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
 Version:	1.3.4
-Release:	1PGDG%{?dist}
+Release:	3PGDG%{?dist}
 License:	PostgreSQL
 URL:		https://github.com/theory/%{sname}
 Source0:	https://github.com/theory/%{sname}/archive/refs/tags/v%{version}.tar.gz
 # Use this source for pg_prove and pg_tapgen
 Source1:	https://search.cpan.org/CPAN/authors/id/D/DW/DWHEELER/TAP-Parser-SourceHandler-pgTAP-%{tapparserversion}.tar.gz
+BuildRequires:	make
 BuildRequires:	postgresql%{pgmajorversion} postgresql%{pgmajorversion}-devel
-BuildRequires:	perl-Test-Pod perl-Test-Pod-Coverage perl-Module-Build
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+# The tests use the citext, isn and ltree extensions
+BuildRequires:	postgresql%{pgmajorversion}-contrib
+%endif
+BuildRequires:	perl-Module-Build perl-Test-Pod perl-Test-Pod-Coverage
+BuildRequires:	perl-macros
 BuildArch:	noarch
 
 Requires:	postgresql%{pgmajorversion}-server, perl-Test-Harness >= 3.0
@@ -47,6 +56,11 @@ pushd TAP-Parser-SourceHandler-pgTAP-%{tapparserversion}
 %{__install} lib/TAP/Parser/SourceHandler/pgTAP.pm %{buildroot}%{perl_privlib}/TAP/Parser/SourceHandler/
 popd
 
+%check
+%if %runselftest
+%pgdg_check_installcheck
+%endif
+
 %files
 %defattr(-,root,root,-)
 %doc %{pginstdir}/doc/extension/pgtap.mmd
@@ -58,6 +72,14 @@ popd
 %{perl_privlib}/TAP/Parser/SourceHandler/pgTAP.pm
 
 %changelog
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 1.3.4-3PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.3.4-2PGDG
+- Add missing BR
+
 * Sun Oct 5 2025 Devrim Gündüz <devrim@gunduz.org> - 1.3.4-1PGDG
 - Update to 1.3.4
 - Update TAP parser version to 3.37

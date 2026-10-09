@@ -2,9 +2,21 @@
 %global sname pgvector
 
 %{!?llvm:%global llvm 1}
+%{!?runselftest:%global runselftest 0}
+
+# Propagate %%llvm into the actual build: PGXS decides whether to invoke
+# clang/llvm-config based on with_llvm from the installed postgresql*-devel's
+# Makefile.global, not from this spec's %%llvm. Without passing with_llvm=no
+# through to make, setting %%llvm 0 here only drops the llvm BuildRequires/
+# subpackage/files, while the build still tries to run clang regardless.
+%if %llvm
+%global with_llvm_arg %{nil}
+%else
+%global with_llvm_arg with_llvm=no
+%endif
 
 Name:		%{sname}_%{pgmajorversion}
-Version:	0.8.2
+Version:	0.8.7
 Release:	1PGDG%{?dist}
 Summary:	Open-source vector similarity search for Postgres
 License:	PostgreSQL
@@ -17,6 +29,9 @@ Patch0:		pgvector-0.6.2-fixillegalinstructionrror.patch
 
 BuildRequires:	postgresql%{pgmajorversion}-devel
 Requires:	postgresql%{pgmajorversion}-server
+%if %runselftest
+BuildRequires:	postgresql%{pgmajorversion}-server pgdg-srpm-macros >= 2.0.0
+%endif
 
 %description
 Open-source vector similarity search for Postgres.
@@ -41,7 +56,11 @@ Requires:	llvm17
 BuildRequires:	llvm19-devel clang19-devel
 Requires:	llvm19
 %endif
-%if 0%{?fedora} || 0%{?rhel} >= 8
+%if 0%{?amzn}
+BuildRequires:	llvm-devel >= 15.0 clang-devel >= 15.0
+Requires:	llvm >= 15.0
+%endif
+%if ( 0%{?fedora} || 0%{?rhel} >= 8 ) && !0%{?amzn}
 BuildRequires:	llvm-devel >= 19.0 clang-devel >= 19.0
 Requires:	llvm >= 19.0
 %endif
@@ -55,14 +74,19 @@ This package provides JIT support for pgvector
 %patch -P 0 -p0
 
 %build
-USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags}
+USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg}
 
 %install
 %{__rm} -rf %{buildroot}
-USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} install DESTDIR=%{buildroot}
+USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} %{with_llvm_arg} install DESTDIR=%{buildroot}
 
-#Remove header file, we don't need it right now:
+# Remove header file, we don't need it right now:
 %{__rm} %{buildroot}%{pginstdir}/include/server/extension/%{pname}/%{pname}.h
+
+%check
+%if %runselftest
+%pgdg_check_installcheck %{with_llvm_arg}
+%endif
 
 %files
 %doc README.md
@@ -80,6 +104,39 @@ USE_PGXS=1 PATH=%{pginstdir}/bin:$PATH %{__make} %{?_smp_mflags} install DESTDIR
 %endif
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.7-1PGDG
+- Update to 0.8.7 per changes described at:
+  https://github.com/pgvector/pgvector/blob/v0.8.7/CHANGELOG.md
+  Fixes CVE-2026-103484 (buffer overflow with IVFFlat index build), per
+  https://github.com/pgvector/pgvector/issues/1036
+
+* Tue Sep 29 2026 Devrim Gunduz <devrim@gunduz.org> - 0.8.6-4PGDG
+- Add %%check, running the regression tests with the %%check helpers
+  from pgdg-srpm-macros 2.0.0. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Sun Aug 30 2026 Devrim Gunduz <devrim@gunduz.org> - 0.8.6-3PGDG
+- Make %%llvm actually control the build, not just packaging: pass
+  with_llvm=no to make when %%llvm is 0, otherwise setting %%llvm 0 only
+  dropped the llvm BuildRequires/subpackage/files while the build still
+  invoked clang regardless, per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/51
+
+* Fri Aug 7 2026 Devrim Gunduz <devrim@gunduz.org> - 0.8.6-2PGDG
+- Add Amazon Linux 2023 support.
+
+* Thu Jul 30 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.6-1PGDG
+- Update to 0.8.6
+
+* Thu Jul 9 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.5-1PGDG
+- Update to 0.8.5
+
+* Wed Jul 1 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.4-1PGDG
+- Update to 0.8.4
+
+* Fri Jun 19 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.3-1PGDG
+- Update to 0.8.3
+
 * Thu Feb 26 2026 Devrim Gündüz <devrim@gunduz.org> - 0.8.2-1PGDG
 - Update to 0.8.2
 

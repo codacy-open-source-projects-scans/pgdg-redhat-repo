@@ -4,13 +4,14 @@
 Summary:	Job scheduler for PostgreSQL
 Name:		%{sname}_%{pgmajorversion}
 Version:	4.2.3
-Release:	9PGDG%{?dist}
+Release:	12PGDG%{?dist}
 License:	PostgreSQL
 Source0:	https://github.com/pgadmin-org/%{sname}/archive/refs/tags/%{sname}-%{version}.tar.gz
 Source2:	%{sname}-%{pgmajorversion}.service
 Source6:	%{sname}-sysusers.conf
 Source7:	%{sname}-tmpfiles.d
 URL:		https://github.com/pgadmin-org/%{sname}
+BuildRequires:	gcc-c++
 BuildRequires:	postgresql%{pgmajorversion}-devel
 BuildRequires:	cmake >= 3.0.0
 
@@ -21,15 +22,18 @@ BuildRequires:	libboost_serialization1_66_0-devel libboost_atomic1_66_0-devel
 %endif
 %if 0%{?suse_version} == 1600
 BuildRequires:	libboost_date_time1_86_0 libboost_thread1_86_0
-BuildRequires:	libboost_system1_86_0 libboost_serialization1_86_0
+BuildRequires:	libboost_system1_86_0 libboost_serialization1_86_0 libboost_date_time1_86_0-devel
 BuildRequires:	libboost_serialization1_86_0-devel libboost_atomic1_86_0-devel
 BuildRequires:	libboost_filesystem1_86_0-devel libboost_regex1_86_0-devel
-%endif
-%if 0%{?rhel} || 0%{?fedora}
-BuildRequires:	boost-thread boost-date-time boost-serialization
+BuildRequires:	libboost_thread1_86_0-devel libboost_system1_86_0-devel
 %endif
 %if 0%{?rhel}
-BuildRequires:	boost-system
+BuildRequires:	boost-thread boost-date-time boost-serialization
+BuildRequires:	boost-devel boost-system boost-filesystem boost-regex
+%endif
+%if 0%{?fedora}
+BuildRequires:	boost-thread boost-date-time boost-serialization
+BuildRequires:	boost-devel boost-filesystem boost-regex
 %endif
 
 BuildRequires:		systemd, systemd-devel
@@ -82,7 +86,11 @@ popd
 %install
 %{__rm} -rf %{buildroot}
 pushd build
+%if 0%{?suse_version}
+%{__make} install DESTDIR=%{buildroot}
+%else
 %cmake_install
+%endif
 popd
 
 # Rename pgagent binary, so that we can have parallel installations:
@@ -152,6 +160,17 @@ EOF
 %{pginstdir}/share/extension/%{sname}.control
 
 %changelog
+* Tue Sep 15 2026 Devrim Gündüz <devrim@gunduz.org> - 4.2.3-12PGDG
+- Fix installation on SLES.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 4.2.3-11PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 4.2.3-10PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  pgagent-14..19 service files, so that Restart=on-failure cannot
+  crash-loop indefinitely. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/191
 * Mon Apr 13 2026 Devrim Gündüz <devrim@gunduz.org> - 4.2.3-9PGDG
 - Fix builds against CMake 4.
 

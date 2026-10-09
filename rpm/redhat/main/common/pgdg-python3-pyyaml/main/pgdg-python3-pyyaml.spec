@@ -1,0 +1,89 @@
+%global modname PyYAML
+
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __python3 %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __python3 %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
+%if 0%{?fedora} && 0%{?fedora} == 43
+%global __python3 %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
+%if 0%{?rhel} && 0%{?rhel} <= 10
+%global	__python3 %{_bindir}/python3.12
+%global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
+%endif
+%if 0%{?suse_version} >= 1500
+%global	__python3 %{_bindir}/python3.11
+%global	python3_pkgversion 311
+%endif
+
+%{expand: %%global pybasever %(echo `%{__python3} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
+%global python3_sitearch %(%{__python3} -Esc "import sysconfig; print(sysconfig.get_path('platlib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
+
+Name:		python%{python3_pkgversion}-%{modname}
+Version:	6.0.3
+Release:	2PGDG%{?dist}
+Summary:	HTTP library with thread-safe connection pooling, file post, and more
+
+License:	MIT
+URL:		https://github.com/yaml/pyyaml
+Source0:	https://github.com/yaml/pyyaml/archive/%{version}.tar.gz
+
+BuildRequires:	gcc libyaml-devel python%{python3_pkgversion}-devel python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools python%{python3_pkgversion}-cython
+
+%if 0%{?suse_version} >= 1500
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+%endif
+
+Provides:	python%{python3_pkgversion}-pyyaml
+
+%description
+YAML is a data serialization format designed for human readability and\
+interaction with scripting languages.  PyYAML is a YAML parser and\
+emitter for Python.
+
+PyYAML features a complete YAML 1.1 parser, Unicode support, pickle\
+support, capable extension API, and sensible error messages.  PyYAML\
+supports standard YAML tags and provides Python-specific tags that\
+allow to represent an arbitrary Python object.
+
+PyYAML is applicable for a broad range of tasks from complex\
+configuration files to object serialization and persistence.
+
+%prep
+%autosetup -n pyyaml-%{version}
+
+%build
+export HATCH_METADATA_CLASSIFIERS_NO_VERIFY=1
+%pyproject_wheel
+
+%install
+%pyproject_install
+
+%files
+%{python3_sitearch}/pyyaml-%{version}.dist-info/
+%{python3_sitearch}/_yaml/*
+%{python3_sitearch}/yaml/*
+
+%changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 6.0.3-2PGDG
+- Migrate %%python3_sitearch off the removed distutils.sysconfig module
+  to sysconfig.get_path()
+- Add missing BRs: python3-pip, python3-setuptools and python3-cython
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Thu Sep 3 2026 Devrim Gunduz <devrim@gunduz.org> - 6.0.3-1PGDG
+- Inıtial packaging for the PostgreSQL RPM repository to support Patroni
+  on Amazon Linux 2023

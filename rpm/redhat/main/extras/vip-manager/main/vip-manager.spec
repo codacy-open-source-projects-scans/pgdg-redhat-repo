@@ -1,20 +1,20 @@
 %global		debug_package %{nil}
 %global		_missing_build_ids_terminate_build 0
 
-# Upstream does not provide tarballs for ppc64le:
-ExcludeArch:	ppc64le
-
-%ifarch x86_64
-%global		tarballarch x86_64
-%endif
 %ifarch aarch64
 %global		tarballarch arm64
+%endif
+%ifarch ppc64le
+%global		tarballarch ppc64le
+%endif
+%ifarch x86_64
+%global		tarballarch x86_64
 %endif
 
 Summary:	Manages a virtual IP for Patroni based on state kept in etcd or Consul
 Name:		vip-manager
-Version:	4.0.0
-Release:	1PGDG%{?dist}
+Version:	5.0.0
+Release:	2PGDG%{?dist}
 License:	BSD2
 URL:		https://github.com/cybertec-postgresql/%{name}
 
@@ -62,6 +62,20 @@ Manages a virtual IP for Patroni based on state kept in etcd or Consul
 %doc
 
 %changelog
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> 5.0.0-2PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Thu Jul  30 2026 Devrim Gündüz <devrim@gunduz.org> 5.0.0-1PGDG
+- Update to 5.0.0 per changes described at:
+  https://github.com/cybertec-postgresql/vip-manager/releases/tag/v5.0.0
+
+* Wed Apr 29 2026 Devrim Gündüz <devrim@gunduz.org> 4.2.0-1PGDG
+- Update to 4.2.0 per changes described at:
+  https://github.com/cybertec-postgresql/vip-manager/releases/tag/v4.1.0
+  https://github.com/cybertec-postgresql/vip-manager/releases/tag/v4.2.0
+- Add ppc64le support. Fixes https://github.com/pgdg-packaging/pgdg-rpms/issues/184
+
 * Wed Jun 18 2025 Devrim Gündüz <devrim@gunduz.org> 4.0.0-1PGDG
 - Update to 4.0.0 per changes described at:
   https://github.com/cybertec-postgresql/vip-manager/releases/tag/v4.0.0

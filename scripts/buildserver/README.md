@@ -14,15 +14,19 @@ enforced in `global.sh`, which every other script sources first.
 
 ## Architecture Overview
 
-The scripts distinguish between three repository categories:
+The scripts distinguish between four repository categories:
 
 - **Common** — packages that are version-independent (e.g., shared
   utilities), stored in `rpmcommon/` and published under the `common/`
   path in S3.
 - **Non-common** — packages built per PostgreSQL major version (e.g.,
   PostGIS, pgpool-II), stored in `rpm<version>/` directories.
-- **Extras** — additional packages for RHEL/SLES platforms, stored in
-  `pgdg.extras/`.
+- **Extras** — additional packages for RHEL/SLES/Amazon Linux platforms,
+  stored in `pgdg.extras/`.
+- **Repo RPM** (`pgdg-yum`) — the repository-definition RPM itself
+  (`/etc/yum.repos.d/pgdg-*.repo`), built per OS release rather than per
+  PostgreSQL version. Lives on disk alongside the common packages but is
+  built with `reporpmbuild.sh`, not `packagebuild.sh` (see below).
 
 Separately, **non-free** packages are handled by dedicated scripts
 (`packagebuildnonfree.sh`, `packagesyncnonfree.sh`) to prevent accidentally
@@ -33,26 +37,30 @@ buckets (`dnf-debuginfo`, `dnf-srpms`), each fronted by a CloudFront
 distribution. SLES and openSUSE Leap builds use a parallel `zypp`-prefixed bucket set instead
 of `dnf`.
 
+Configuration is split across two files: `global.sh` holds logic and values
+that are identical across every build instance and gets redeployed/updated
+centrally, while `global-local.sh` holds the handful of values that differ
+per instance (OS version, architecture, signing key, CloudFront
+distribution) and is never overwritten by that redeployment. See both
+sections below.
+
 ---
 
 ## global.sh
 
-The central configuration file sourced by every other script. It defines all
-shared variables and the two reusable functions `sign_package` and
-`preset_gpg_passphrase`.
+The central configuration file sourced by every other script. It defines the
+shared, instance-independent variables and functions, and sources
+`~/bin/global-local.sh` for everything that differs per build instance (see
+the next section). It exits with a clear error if `global-local.sh` is
+missing, or if `global-local.sh` failed to set one of the variables
+`global.sh` depends on (`osmajorversion`, `osminversion`, `osislatest`,
+`osarch`, `osdistro`, `git_os`, `extrasrepoenabled`, `CF_DEBUG_DISTRO_ID`,
+`CF_SRPM_DISTRO_ID`, `GPG_PASSWORD`).
 
-### OS Configuration
-
-| Variable | Example | Description |
-|---|---|---|
-| `osmajorversion` | `10` | OS major version (RHEL 10, SLES 15, Fedora 43) |
-| `os` | `rhel-10` | Full OS string used in directory and S3 paths; use `leap-16` for openSUSE Leap |
-| `osminversion` | `1` | Minor version for RHEL/SLES (e.g. RHEL 10.1) |
-| `osislatest` | `0` or `1` | When `1`, packages are also synced to the major-version path (S3 has no symlinks) |
-| `osarch` | `x86_64` | Architecture; also `aarch64`, `ppc64le` |
-| `osdistro` | `redhat` | Distro family: `fedora`, `redhat`, `suse`, or `opensuse` |
-| `git_os` | `EL-10` | Git branch suffix used in clone paths |
-| `extrasrepoenabled` | `1` | Enables the extras repository for RHEL/SLES |
+Because `global.sh` no longer contains per-host values, it's safe to
+redeploy/update it across every build instance at once — instance-specific
+settings live only in `global-local.sh`, which that redeployment doesn't
+touch.
 
 ### PostgreSQL Build Versions
 
@@ -65,30 +73,123 @@ shared variables and the two reusable functions `sign_package` and
 
 ### GPG Configuration
 
-`GPG_KEY_ID` and `GPG_PASSWORD` must be set before use. The password is used
-for `repomd.xml` signing (via `gpg2 --passphrase-fd`) while package signing
-itself relies on `gpg-agent` with a pre-loaded passphrase (see
-`gpg-setup-secure.sh`).
+Both `GPG_PASSWORD` and `GPG_KEY_ID` are host-specific and come from
+`global-local.sh` — `global.sh` requires `GPG_PASSWORD` to be set (refusing
+to load otherwise) but defaults `GPG_KEY_ID` to empty for hosts that
+haven't set it yet. `GPG_PASSWORD` is used for `repomd.xml` signing (via
+`gpg2 --passphrase-fd`); package signing itself relies on `gpg-agent` with
+a pre-loaded passphrase (see `gpg-setup-secure.sh`).
 
 ### AWS Configuration
 
-`awssrpmurl` and `awsdebuginfourl` point to separate S3 buckets for SRPMs
-and debug packages. `CF_SRPM_DISTRO_ID` and `CF_DEBUG_DISTRO_ID` are the
-CloudFront distribution IDs that must be invalidated after every sync.
-Set `AWS_PAGER=""` to suppress interactive output in automated runs.
+`awssrpmurl` and `awsdebuginfourl` are derived automatically from
+`osdistro` (set in `global-local.sh`): SLES/openSUSE hosts get the
+`zypp-*` buckets, every other distro (RHEL, Fedora, Amazon Linux) gets
+the `dnf-*` buckets. This isn't something you set per host — it's
+computed the same way `packagesync.sh` derives its `sync_base`. Set
+`AWS_PAGER=""` to suppress interactive output in automated runs.
 
 ### `sign_package <rpm_location>`
 
-Finds all RPMs under `~/<rpm_location>*/` and signs them with `rpmsign
---addsign`. Before signing it purges any leftover `.sig` files and
-`buildreqs.nosrc` packages that would otherwise break the signing process.
+Signs RPMs under `~/<rpm_location>*/` with `rpmsign --addsign`. Before
+signing it purges any leftover `.sig` files and `buildreqs.nosrc` packages
+that would otherwise break the signing process (`clean_signing_leftovers`).
 Requires `gpg-agent` to be running with the passphrase already preset.
+
+It signs the RPMs that match `*$signPackageName*$packageVersion*.rpm`;
+`signallpackages.sh` sets both to `*` to sign everything, and
+`dailybuildalpha.sh` leaves them empty. The build scripts do not use it: they
+use `sign_built_rpms`, which needs no name.
+
+The signing itself is done by `sign_rpm_files`, which reads RPM paths from
+stdin. RPMs that already carry a signature are skipped (the number is printed
+as `Already signed, skipping: N`), so `rpmsign` is not started for each of
+them. Reading the signature from the header is much cheaper: with RPM 6.0.2,
+`rpmsign --addsign` took about 44 ms per already signed RPM (it then skips
+the RPM itself, as it "already contains an identical signature"), while
+`list_unsigned_rpms` queries the RPMs in batches at about 0.4 ms per RPM.
+Other RPM versions were not measured. `list_unsigned_rpms` also passes on
+anything it cannot confirm as signed (unreadable RPMs, or file names that
+are not `NAME-VERSION-RELEASE.ARCH.rpm`), so those still reach `rpmsign`.
+Set `FORCE_RESIGN=1` to run `rpmsign` on every RPM anyway:
+
+```bash
+FORCE_RESIGN=1 ~/bin/signallpackages.sh
+```
+
+A package that cannot be signed does not stop the others from being
+signed. Each failure is reported as it happens, and at the end the function
+lists every package that is NOT signed and returns 1. Note that when the
+failure affects every package (for example when the passphrase is not
+preset in the agent), `rpmsign` is tried on each of them, and may prompt
+for the passphrase for each one, instead of giving up at the first failure.
+
+### `check_gpg_agent`
+
+Returns 1 with an error message if no `gpg-agent` is running. `sign_package`
+uses it, and `packagebuild.sh`, `packagebuildnonfree.sh` and `reporpmbuild.sh`
+call it right at the start, so that a long build is not wasted on packages
+that could not be signed afterwards. It only checks that an agent runs, not
+that the passphrase is preset.
+
+### `spec_rpm_files <pgmajorversion>`
+
+Prints the file names of the binary RPMs that the spec file in the current
+directory produces, named the way `rpmbuild` names them
+(`NAME-VERSION-RELEASE.ARCH.rpm`), one per line. `is_already_built` and
+`verify_built_rpms` use it.
+
+### `spec_rpm_patterns <pgmajorversion>`
+
+Prints the file name patterns of every RPM that the spec file in the current
+directory can produce, one per line. For the name of each binary package and
+of the source package, that is the RPM itself plus its `-debuginfo` and
+`-debugsource` RPMs, combined with the version and release from the spec
+file, e.g. `foo-libs-1.0-1PGDG.f45.*.rpm`. It all comes from the spec file, so
+nothing has to be typed, and only the RPMs of this package match, even when
+other packages are built into the same directory at the same time (a package
+with the same version and release has a different name).
+
+### `verify_built_rpms <rpm_location> <pgmajorversion>`
+
+Checks that the RPMs of the spec file in the current directory (every binary
+RPM from `spec_rpm_files`, plus the source RPM) exist under
+`~/<rpm_location>*/` and are signed, and lists what is missing or NOT
+signed. It works from the spec file, not from any name typed by a human, so
+it catches a package that was left unsigned for any reason. Returns 1 if
+anything is wrong. The debuginfo/debugsource RPMs are not checked, as their
+names vary; they are signed with the rest, and `packagesync.sh` checks them
+before syncing.
+
+### `sign_built_rpms <rpm_location> <pgmajorversion>`
+
+What the build scripts call, from inside the package's build directory: after
+a successful build, and where they skip a package because it is "already
+built" (see "Already-built check" below). It signs the RPMs that
+`spec_rpm_patterns` gives (skipping the ones that are signed already) and then
+runs `verify_built_rpms`, so a package that was left unsigned by an earlier
+failed signing gets signed on the next run. It returns 1 if anything is
+not signed. After a build the build scripts then exit with status 1 once they
+have finished (all PostgreSQL versions of a non-common package are still
+built and signed first); on the "already built" path the errors are only
+printed.
+
+An RPM whose name cannot be derived from the spec file (which would be an
+unusual debuginfo naming) is not signed by this. `packagesync.sh` refuses to
+sync it, and `signallpackages.sh` signs it.
 
 ### `preset_gpg_passphrase <keygrip>`
 
 Feeds `GPG_PASSWORD` into `/usr/libexec/gpg-preset-passphrase` so the
 agent can sign without prompting. On SLES 15 the binary path is
 `/usr/lib/gpg-preset-passphrase`; SLES 16 uses the same path as RHEL.
+
+### `log_build_failure <package_name> <pg_version> <repo_type>`
+
+Writes a timestamped failure report to `~/bin/logs/`. Shared by
+`packagebuild.sh`, `packagebuildnonfree.sh`, and `reporpmbuild.sh` so the
+log format stays consistent across all three. `global.sh` also creates
+`~/bin/logs/` if it doesn't already exist.
 
 ### Crontab note
 
@@ -104,6 +205,56 @@ else
     green=""; red=""; blue=""; reset=""
 fi
 ```
+
+---
+
+## global-local.sh
+
+Per-host configuration, sourced by `global.sh`. **Not** part of whatever
+mechanism redeploys `global.sh` to build instances (git-ignore it, or
+exclude it from the deploy rsync) — that's the whole point: update
+`global.sh` centrally as often as needed without touching this file.
+
+Set it up on a new instance by copying the template and filling in that
+host's values:
+
+```bash
+cp ~/bin/global-local.sh.example ~/bin/global-local.sh
+$EDITOR ~/bin/global-local.sh
+```
+
+If this file is missing, `global.sh` refuses to load and tells you to
+create it.
+
+### OS Configuration
+
+| Variable | Example | Description |
+|---|---|---|
+| `osmajorversion` | `10` | OS major version (RHEL 10, SLES 15, Fedora 43, Amazon Linux 2023) |
+| `os` | `rhel-10` | Full OS string used in directory and S3 paths; use `leap-16` for openSUSE Leap, `amzn-2023` for Amazon Linux (matches upstream's own `amzn` naming, e.g. the `.amzn2023` `%{dist}` tag — not `amazon`/`amazonlinux`) |
+| `osminversion` | `1` | Minor version for RHEL/SLES (e.g. RHEL 10.1). Leave empty (`""`) for OSes with no minor version: Fedora, Amazon Linux |
+| `osislatest` | `0` or `1` | When `1`, packages are also synced to the major-version path (S3 has no symlinks) |
+| `osarch` | `x86_64` | Architecture; also `aarch64`, `ppc64le` |
+| `osdistro` | `redhat` | Distro family: `fedora`, `redhat`, `suse`, `opensuse`, or `amzn`. Also drives the automatic `dnf-*`/`zypp-*` S3 bucket selection in `global.sh` |
+| `git_os` | `EL-10` | Git branch/directory suffix used in clone paths; `AL-2023` for Amazon Linux |
+| `extrasrepoenabled` | `1` | Enables the extras repository for RHEL/SLES/Amazon Linux |
+
+### GPG Configuration
+
+| Variable | Example | Description |
+|---|---|---|
+| `GPG_PASSWORD` | `foobar` | Passphrase used for `repomd.xml` signing (`gpg2 --passphrase-fd`). Required — `global.sh` refuses to load without it |
+| `GPG_KEY_ID` | `""` | This host's signing key ID, if it differs from the default |
+
+### CloudFront Configuration
+
+| Variable | Example | Description |
+|---|---|---|
+| `CF_SRPM_DISTRO_ID` | `E1234567890ABC` | CloudFront distribution ID fronting the SRPM bucket |
+| `CF_DEBUG_DISTRO_ID` | `E0987654321XYZ` | CloudFront distribution ID fronting the debuginfo bucket |
+
+Both must be invalidated after every sync; `packagesync.sh` and
+`awsupdateindex.sh` do this automatically.
 
 ---
 
@@ -136,8 +287,8 @@ Before deploying, replace the placeholder keygrip:
 export GPG_KEYGRIP="XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 ```
 
-Also ensure `GPG_KEY_ID` is set in `global.sh`, as it is referenced by the
-test signing call in this file.
+Also ensure `GPG_KEY_ID` is set in `global-local.sh`, as it is referenced by
+the test signing call in this file.
 
 ---
 
@@ -150,7 +301,7 @@ extras repository and acts accordingly.
 ### Usage
 
 ```
-packagebuild.sh [--beta] [--testing] <git-package-name> <sign-package-name> [pg-version]
+packagebuild.sh [--beta] [--testing] [--force] <git-package-name> [pg-version]
 ```
 
 - `--beta` — build against the current beta PostgreSQL version
@@ -158,15 +309,20 @@ packagebuild.sh [--beta] [--testing] <git-package-name> <sign-package-name> [pg-
   `pgBetaVersion` is unset.
 - `--testing` — build against `pgTestBuilds` versions and target testing
   repository targets.
+- `--force` — rebuild even if the package's RPMs already exist in the
+  target `RPMS` directory for that PostgreSQL version/repo (see "Already-built
+  check" below).
 - `<git-package-name>` — the directory name in the git tree (e.g.
   `postgresql-16`, `pgpool-II-41`).
-- `<sign-package-name>` — the prefix used by `rpmsign` to locate built
-  RPMs (e.g. `postgresql16`, `pgpool-II`). These differ because upstream
-  names don't always match packaging conventions (e.g. `check_pgactivity`
-  is packaged as `nagios-check_pgactivity`).
 - `[pg-version]` — optional; restricts the build to a single PostgreSQL
   major version. If omitted, all versions in the active build array are
-  built.
+  built. A version that is not in the build array is an error for non-common
+  packages.
+
+The package name to sign (e.g. `postgresql16`) used to be the second
+parameter, and `pg-version` the third. The RPMs to sign come from the spec
+file now, so it is not given any more. A command in the old form (more than
+two parameters, or a second one that is not a number) is an error.
 
 ### Build logic
 
@@ -174,17 +330,85 @@ The script checks three locations in order and stops at the first match:
 
 1. **Common** (`~/git/pgrpms/rpm/redhat/main/common/<pkg>/<git_os>`) —
    builds once with `make commonbuild` (or `commonbuildtesting`), signs
-   against `rpmcommon`, and exits.
+   the RPMs in `rpmcommon`, and exits. The `pgdg-yum` repo RPM lives in this
+   same directory on disk but is *not* buildable here: it builds against
+   an OS release, not a PostgreSQL version, so the script detects it and
+   exits with an error pointing to `reporpmbuild.sh` instead.
 2. **Non-common** (`~/git/pgrpms/rpm/redhat/main/non-common/<pkg>/<git_os>`) —
    iterates over every version in `pgStableBuilds` (or `pgTestBuilds`),
    runs `make build<version>` (or `build<version>testing`), and signs
    each version's directory separately.
 3. **Extras** (`~/git/pgrpms/rpm/redhat/main/extras/<pkg>/<git_os>`) —
    builds once with `make extrasbuild` (or `extrasbuildtesting`), signs
-   against `pgdg`, and exits. Only available when `extrasrepoenabled=1`.
+   the RPMs in `pgdg*`, and exits. Only available when `extrasrepoenabled=1`.
 
-On any build failure, a timestamped log is written to `~/bin/logs/` and
-the script exits immediately.
+On any build failure, `log_build_failure` (from `global.sh`) writes a
+timestamped log to `~/bin/logs/` and the script exits immediately.
+
+Right after the argument check, before anything is built, the script runs
+`check_gpg_agent` and exits with an error if no `gpg-agent` is running. This
+applies even when the package turns out to be built already. After each
+successful build `sign_built_rpms` signs the RPMs of the spec file and checks
+that all of them are there and signed. If not, the problem is listed, and the
+script exits with status 1 after it has finished the remaining PostgreSQL
+versions, so an unsigned package is never reported as a success.
+
+### Already-built check
+
+Before running `make`, the script asks `rpmspec` (via `is_already_built` in
+`global.sh`) for every binary RPM the spec would produce for that
+PostgreSQL version/repo, and checks whether all of them already exist in
+the corresponding `RPMS` directory (e.g. `~/rpm18/RPMS`, `~/rpmcommon/RPMS`,
+`~/pgdg.extras/RPMS`, or their `testing`-suffixed counterparts). If they're
+all present, the build is skipped with a warning instead of
+re-running `make` — re-running an unchanged build just re-stamps RPMs that
+are already published, which breaks timestamp-based mirror syncing. In the
+non-common loop this only skips that one PostgreSQL version, not the whole
+package. Pass `--force` to rebuild anyway.
+
+Skipping the build does not skip signing: the script calls
+`sign_built_rpms` first, which signs any RPM of that package that is still
+unsigned (for example after a failed signing during the original build), and
+leaves the signed ones alone. Signing problems on this path are printed but
+do not change the exit status.
+
+---
+
+## reporpmbuild.sh
+
+Builds and signs the `pgdg-yum` repo RPM — the package that installs
+`/etc/yum.repos.d/pgdg-*.repo` — from
+`~/git/pgrpms/rpm/redhat/main/common/pgdg-yum/<git_os>`. Unlike the packages
+`packagebuild.sh` handles, this one builds against the OS release
+(`osmajorversion.osminversion`) rather than a PostgreSQL major version.
+
+### Usage
+
+```
+reporpmbuild.sh [--testing] [--force]
+```
+
+- `--testing` — runs `make repobuild<osrelease>testing`
+  and signs against `rpmcommontesting` instead of the production target.
+- `--force` — rebuild even if `pgdg-yum`'s RPM already exists in the
+  target `RPMS` directory (`~/rpmcommon/RPMS` or `~/rpmcommontesting/RPMS`).
+  Without it, the same `is_already_built` check `packagebuild.sh` uses
+  skips the build (and sign) with a warning when it's already there.
+
+With no arguments it runs `make repobuild<osrelease>` and signs the
+result with `sign_built_rpms` from `global.sh`. On
+failure, `log_build_failure` writes a timestamped log to `~/bin/logs/`,
+same as `packagebuild.sh`.
+
+`<osrelease>` is `<osmajorversion>.<osminversion>` when `osminversion` is
+set (e.g. `10.1`), or just `<osmajorversion>` for OSes with no minor
+version, such as Fedora or Amazon Linux (e.g. `2023`).
+
+Like `packagebuild.sh`, it runs `check_gpg_agent` at the start and exits
+with an error if no `gpg-agent` is running, signs the RPMs with
+`sign_built_rpms`, and exits with status 1 if they are not all signed.
+Unlike `packagebuild.sh`, it does not sign an already built package when it
+skips the build.
 
 ---
 
@@ -194,7 +418,17 @@ Identical in structure to `packagebuild.sh` but operates exclusively on
 the `non-free` directory in the git tree. Kept as a separate script
 deliberately, to prevent accidentally building proprietary packages on
 shared community build instances. It does not support `--beta` or
-`--testing` flags and has no extras/common handling.
+`--testing` flags and has no extras/common handling. Build failures are
+logged via the same shared `log_build_failure` function in `global.sh`.
+
+Supports `--force` the same way `packagebuild.sh` does: by default each
+PostgreSQL version is skipped (with a warning) if its RPMs already exist
+in `~/rpm<version>/RPMS`, via the shared `is_already_built` check. As in
+`packagebuild.sh`, `check_gpg_agent` runs at the start, the RPMs of a build
+are signed and checked (`sign_built_rpms`, exit status 1 if they are not all
+signed), a skipped version's RPMs are still signed if they are not (the same
+function), and no package name to sign is given:
+`packagebuildnonfree.sh [--force] <git-package-name> [pg-version]`.
 
 ---
 
@@ -227,6 +461,34 @@ packagesync.sh --sync="pg common extras"
 packagesync.sh --testing --sync=18           # version 18 in testing repos
 packagesync.sh --testing --sync=pg           # all versions in testing repos
 ```
+
+### Signature check
+
+Before anything is synced, the script checks that the RPMs it is about to
+add are signed. "New" means an RPM (binary, debuginfo/debugsource or source)
+under `RPMS/<arch>`, `RPMS/noarch` or `SRPMS` of a requested target whose
+file name is not yet in that target's `ALLRPMS`, `ALLDEBUGRPMS` or
+`ALLSRPMS` staging directories. `ALLDEBUGRPMS` is compared as well because
+the debuginfo/debugsource RPMs are moved there after every sync. RPMs which
+are staged already were checked when they were staged, and are not checked
+again. This is by file name only, so it assumes an RPM is not rebuilt under
+the same name after it was staged, unless it is signed before the next sync.
+
+This runs for all requested targets up front, so a single unsigned package
+blocks the whole run: nothing is copied to the `ALL*` directories, no repo
+metadata is created and nothing goes to S3. The script prints each
+`UNSIGNED:` (or `UNREADABLE:`) package and exits with status 1. Because the
+staging directories stay untouched, the same packages are checked again on
+the next run.
+
+The repo files set `pkg_gpgcheck=1`, so clients would refuse an unsigned
+package anyway. Sign the listed packages (see `signallpackages.sh`) and run
+the sync again. RPMs that were already staged before this check existed are
+not covered; `signallpackages.sh` covers every RPM in the build directories.
+
+The check only looks for the presence of a signature (`rpm -qp` reports
+`(none)` for an unsigned package); it does not verify who signed it or that
+the signature is valid.
 
 ### What each sync does
 
@@ -374,7 +636,9 @@ should eventually be co-located with the scripts rather than kept in
 ### Initial instance setup
 
 ```bash
-# 1. Configure global.sh with correct OS, arch, AWS, and GPG values.
+# 1. Set up this host's per-instance configuration:
+cp ~/bin/global-local.sh.example ~/bin/global-local.sh
+$EDITOR ~/bin/global-local.sh   # OS, arch, GPG key/password, CloudFront IDs
 # 2. Set up GPG agent:
 bash ~/bin/gpg-setup-secure.sh
 gpg --with-keygrip -K         # Note the keygrip
@@ -385,11 +649,12 @@ gpg --with-keygrip -K         # Note the keygrip
 ### Build and publish a single package
 
 ```bash
-# Build postgis34 for all stable versions:
-~/bin/packagebuild.sh postgis34 postgis34
+# Build postgis34 for all stable versions. The RPMs are signed and checked;
+# no sign name needs to be given:
+~/bin/packagebuild.sh postgis34
 
 # Build only against PostgreSQL 17:
-~/bin/packagebuild.sh postgis34 postgis34 17
+~/bin/packagebuild.sh postgis34 17
 
 # Sync version 17 to production:
 ~/bin/packagesync.sh --sync=17
@@ -398,7 +663,14 @@ gpg --with-keygrip -K         # Note the keygrip
 ### Publish a new common package
 
 ```bash
-~/bin/packagebuild.sh pg_activity pg_activity
+~/bin/packagebuild.sh pg_activity
+~/bin/packagesync.sh --sync=common
+```
+
+### Build and publish the pgdg-yum repo RPM
+
+```bash
+~/bin/reporpmbuild.sh
 ~/bin/packagesync.sh --sync=common
 ```
 

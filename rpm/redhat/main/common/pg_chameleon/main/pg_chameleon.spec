@@ -1,18 +1,19 @@
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -23,21 +24,29 @@
 %global	python3_pkgversion 313
 %endif
 
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 10 || 0%{?suse_version} >= 1500
 %{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%else
-%{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:3])"`)}
-%endif
 %global python3_sitelib %(%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
 
 Summary:	MySQL to PostgreSQL replica system
 Name:		pg_chameleon
 Version:	2.0.21
-Release:	4PGDG%{?dist}
+Release:	11PGDG%{?dist}
 License:	BSD
 Source0:	https://github.com/the4thdoctor/%{name}/archive/v%{version}.tar.gz
 URL:		https://github.com/the4thdoctor/%{name}
 BuildArch:	noarch
+
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-wheel
+# python%%{python3_pkgversion}-devel is what pulls python3-rpm-generators
+# into the buildroot on RHEL/Fedora; pyproject builds alone do not.
+# Without it, neither python(abi) nor python%%{python3_pkgversion}dist(...)
+# get generated. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+%if !0%{?suse_version}
+BuildRequires:	python%{python3_pkgversion}-devel
+%endif
+
 
 %if 0%{?fedora} >= 42 || 0%{?rhel} >= 8
 Requires:	python3-pyyaml python3-parsy python3-daemonize
@@ -73,7 +82,7 @@ the jsonb values and replays the changes against the PostgreSQL database.
 %license LICENSE.txt
 %{_bindir}/chameleon
 %{_bindir}/chameleon.py
-%{python3_sitelib}/%{name}-%{version}.dist-info/*
+%{python3_sitelib}/%{name}-%{version}.dist-info/
 %{python3_sitelib}/%{name}/*.py
 %{python3_sitelib}/%{name}/__pycache__/*.pyc
 %{python3_sitelib}/%{name}/configuration/config-example.yml
@@ -83,6 +92,41 @@ the jsonb values and replays the changes against the PostgreSQL database.
 %{python3_sitelib}/%{name}/sql/upgrade/*.sql
 
 %changelog
+* Sun Sep 20 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0.21-11PGDG
+- Add Fedora 45 support
+
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0.21-10PGDG
+- Remove Fedora <= 42 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0.21-9PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0.21-8PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+- Add back python%{python3_pkgversion}-devel as a BuildRequires on the
+  non-SLES branch, needed to pull python3-rpm-generators into the
+  buildroot for this pyproject build. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/228
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0.21-7PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %pyproject_wheel/%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3.
+  This one already had its own local sitelib override, so the
+  mismatch was active (not just cosmetic): pip would install via 3.9
+  while %files looked for files under python3.13's site-packages.
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 2.0.21-6PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Thu May 7 2026 Devrim Gündüz <devrim@gunduz.org> - 2.0.21-5PGDG
+- Add missing BRs
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 2.0.21-4PGDG
 - Switch to pyproject build.
 - Use Python 3.14 on Fedora 44.

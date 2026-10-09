@@ -1,5 +1,11 @@
+%if "%{dist}" == ".sles15.7"
+%global __tar %{_bindir}/tar --transform 's|/\\./|/|g'
+%endif
+
+%{!?runselftest:%global runselftest 0}
+
 Name:		pgbouncer
-Version:	1.25.1
+Version:	1.26.0
 Release:	44PGDG%{?dist}
 Summary:	Lightweight connection pooler for PostgreSQL
 License:	MIT and BSD
@@ -11,23 +17,44 @@ Source4:	%{name}.service
 Source5:	%{name}-sysusers.conf
 Source6:	%{name}-tmpfiles.d
 Patch0:		%{name}-ini.patch
+# Amazon Linux 2023 does not ship a pandoc package, which is used
+# upstream only to (re)build the pgbouncer.1/pgbouncer.5 man pages
+# from Markdown. This patch ships pre-built man pages and makes the
+# doc/Makefile rule tolerate a missing pandoc, so the build does not
+# fail on that platform.
+Patch1:		%{name}-al2023-no-pandoc.patch
 
 Requires:	python3 python3-psycopg2
 
+BuildRequires:	gcc make
 BuildRequires:	libevent-devel >= 2.0
 Requires:	libevent >= 2.0
 
-BuildRequires:	pam-devel pandoc
+BuildRequires:	pam-devel
+%if %runselftest
+%if 0%{?fedora} || 0%{?rhel} >= 10
+BuildRequires:	postgresql%{pgmajorversion}-server postgresql%{pgmajorversion}-contrib
+BuildRequires:	python3-pytest python3-pytest-asyncio python3-pytest-timeout
+BuildRequires:	python3-pytest-xdist python3-psycopg3 python3-filelock
+BuildRequires:	openssl socat
+%endif
+%if 0%{?fedora}
+BuildRequires:	openldap-servers openldap-clients
+%endif
+%endif
+%if 0%{?amzn} != 2023
+BuildRequires:	pandoc
+%endif
 %if 0%{?suse_version} >= 1500
 Requires:	libopenssl3
 BuildRequires:	libopenssl-3-devel
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 Requires:	openssl-libs >= 1.1.1k
 BuildRequires:	openssl-devel
 %endif
 
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9 || 0%{?amzn}
 BuildRequires:	c-ares-devel >= 1.13
 Requires:	c-ares >= 1.13
 %endif
@@ -44,12 +71,13 @@ Requires:	libldap-2_4-2
 BuildRequires:	openldap2-devel
 Requires:	libldap-2
 %endif
-%if 0%{?fedora} >= 41 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 8 || 0%{?amzn}
 BuildRequires:	openldap-devel
 Requires:	openldap
 %endif
 
 BuildRequires:		systemd
+BuildRequires:		systemd-devel
 # We require this to be present for %%{_prefix}/lib/tmpfiles.d
 Requires:		systemd
 Requires(post):		systemd
@@ -65,6 +93,9 @@ pgbouncer uses libevent for low-level socket handling.
 %prep
 %setup -q
 %patch -P 0 -p0
+%if 0%{?amzn} == 2023
+%patch -P 1 -p0
+%endif
 
 %build
 sed -i.fedora \
@@ -72,12 +103,12 @@ sed -i.fedora \
  -e '/BININSTALL/s|-s||' \
  configure
 
-# c-ares >= 1.16 is needed for proper c-ares support. Currently
-# only RHEL 8 does not have it, so use libevent only on RHEL 8.
+# c-ares >= 1.16 is needed for proper c-ares support. RHEL 8 does not
+# have it, so use libevent's evdns only there.
 # Per https://redmine.postgresql.org/issues/6315
 %configure \
 	--datadir=%{_datadir} \
-%if 0%{?rhel} <= 8
+%if 0%{?rhel} == 8
 	--without-cares \
 %else
 	--with-cares --disable-evdns \
@@ -87,6 +118,25 @@ sed -i.fedora \
 	--with-pam
 
 %{__make} %{?_smp_mflags} V=1
+
+%check
+%if %runselftest
+# The unit tests of the HBA parser
+%{__make} -C test check
+%if 0%{?fedora} || 0%{?rhel} >= 10
+# The pytest suite starts PostgreSQL servers of its own, with the initdb and
+# pg_ctl it finds in PATH. It needs psycopg 3, which RHEL 8 does not have for
+# its Python, and the psycopg 3.3 published for RHEL 9 cannot be imported with
+# its Python 3.9, so it does not run on RHEL 8 and 9 for now.
+# The LDAP test needs slapd, which cannot be installed on RHEL 10.
+PATH=%{pginstdir}/bin:$PATH PYTHONIOENCODING=utf8 \
+	%{__python3} -m pytest -n %{_smp_build_ncpus} -r s -p no:cacheprovider \
+%if 0%{?rhel}
+	-k 'not test_ldap_auth' \
+%endif
+	;
+%endif
+%endif
 
 %install
 %{__rm} -rf %{buildroot}
@@ -159,6 +209,52 @@ fi
 %attr(755,pgbouncer,pgbouncer) %dir /var/run/%{name}
 
 %changelog
+* Sat Oct 3 2026 Devrim Gündüz <devrim@gunduz.org> - 1.26.0-44PGDG
+- Use c-ares everywhere except RHEL 8, as intended: the "rhel <= 8"
+  condition was also true on Fedora, SUSE and Amazon Linux, so only
+  RHEL 9 and 10 were built with c-ares. Add c-ares to Amazon Linux 2023.
+- Add the missing BuildRequires on openldap-devel on RHEL 8 and Amazon
+  Linux 2023, and on make, so that the package builds in a clean
+  buildroot there.
+- %%check: Add openldap-clients to the test BuildRequires on Fedora, for
+  the LDAP test.
+
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 1.26.0-43PGDG
+- Add %%check, running the unit tests of the HBA parser and, on Fedora and
+  RHEL 10, the upstream pytest suite. It is disabled by default; enable it
+  with --define 'runselftest 1'.
+
+* Wed Sep 23 2026 Devrim Gündüz <devrim@gunduz.org> - 1.26.0-42PGDG
+- Update to 1.26.0, per changes described at:
+  https://github.com/pgbouncer/pgbouncer/releases/tag/pgbouncer_1_26_0
+  Fixes: CVE-2026-19888, CVE-2026-6668 and CVE-2026-6669
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-47PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-46PGDG
+- Add RestartSec and StartLimitIntervalSec/StartLimitBurst to the
+  service file, so that Restart=on-failure cannot crash-loop
+  indefinitely. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/191
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-45PGDG
+- Fix build on Amazon Linux 2023, which does not ship a pandoc
+  package. pandoc is only used upstream to regenerate the
+  pgbouncer.1/pgbouncer.5 man pages from Markdown; ship pre-built
+  man pages and make doc/Makefile tolerate a missing pandoc via
+  a new patch, and drop the pandoc BuildRequires on that platform.
+
+* Mon Aug 24 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-44PGDG
+- Fix OpenSSL dependency for Amazon Linux 2023
+
+* Mon May 11 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-43PGDG
+- Attempt to fix builds on SLES 15.7 by playing with tar command. There
+  is an issue around openat() somewhere on this platform.
+
+* Sat May 9 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-42PGDG
+- Update to 1.25.2, per changes described at:
+  https://github.com/pgbouncer/pgbouncer/releases/tag/pgbouncer_1_25_2
+  Fixes: CVE-2026-6664, CVE-2026-6665, CVE-2026-6666, CVE-2026-6667
+
 * Wed Feb 4 2026 Devrim Gündüz <devrim@gunduz.org> - 1.25.2-44PGDG
 - Add LimitNOFile to unit file. Fixes
   https://github.com/pgdg-packaging/pgdg-rpms/issues/127

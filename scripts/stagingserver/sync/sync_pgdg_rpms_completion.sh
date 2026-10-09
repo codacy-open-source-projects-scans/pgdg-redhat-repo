@@ -35,7 +35,7 @@ _sync_pgdg_rpms_get_config() {
 
 _sync_pgdg_rpms() {
 	local cur prev opts os_choice sync_mode
-	local i
+	local i v
 
 	COMPREPLY=()
 	cur="${COMP_WORDS[COMP_CWORD]}"
@@ -46,17 +46,32 @@ _sync_pgdg_rpms() {
 	# Try to load config, use fallback if not available
 	if ! _sync_pgdg_rpms_get_config; then
 		# Fallback values
-		VALID_OS=("redhat" "fedora" "sles" "opensuse")
+		VALID_OS=("redhat" "fedora" "sles" "opensuse" "amzn")
 		VALID_ARCH_redhat=("aarch64" "ppc64le" "x86_64")
 		VALID_ARCH_fedora=("x86_64")
 		VALID_ARCH_sles=("x86_64")
 		VALID_ARCH_opensuse=("x86_64")
-		VALID_VER_redhat=("10.1" "10.0" "9.7" "9.6" "8.10")
-		VALID_VER_fedora=("43" "42")
+		VALID_ARCH_amzn=("x86_64" "aarch64")
+		VALID_VER_redhat=("10.2" "10.1" "10.0" "9.8" "9.7" "9.6" "8.10")
+		VALID_VER_fedora=("44" "43")
 		VALID_VER_sles=("15.6" "15.7" "16.0")
 		VALID_VER_opensuse=("16.0")
+		VALID_VER_amzn=("2023")
 		PG_ALL_VERSIONS=(18 17 16 15 14)
+		PG_TEST_VERSIONS=(20 19 18 17 16 15 14)
 	fi
+
+	# PG versions that only exist in testing (not yet in PG_ALL_VERSIONS),
+	# so --sync completion doesn't offer the same version number twice
+	local -a pg_testing_only=()
+	local pgver already
+	for pgver in "${PG_TEST_VERSIONS[@]}"; do
+		already=0
+		for v in "${PG_ALL_VERSIONS[@]}"; do
+			[[ "$v" == "$pgver" ]] && already=1 && break
+		done
+		[[ "$already" -eq 0 ]] && pg_testing_only+=("$pgver")
+	done
 
 	# Extract --os value if provided
 	for i in "${!COMP_WORDS[@]}"; do
@@ -83,6 +98,8 @@ _sync_pgdg_rpms() {
 			COMPREPLY=($(compgen -W "${VALID_ARCH_sles[*]}" -- "$cur"))
 		elif [[ "$os_choice" == "opensuse" ]]; then
 			COMPREPLY=($(compgen -W "${VALID_ARCH_opensuse[*]}" -- "$cur"))
+		elif [[ "$os_choice" == "amzn" ]]; then
+			COMPREPLY=($(compgen -W "${VALID_ARCH_amzn[*]}" -- "$cur"))
 		else
 			# If OS not specified yet, show all possible architectures
 			COMPREPLY=($(compgen -W "aarch64 ppc64le x86_64" -- "$cur"))
@@ -98,22 +115,25 @@ _sync_pgdg_rpms() {
 			COMPREPLY=($(compgen -W "${VALID_VER_sles[*]}" -- "$cur"))
 		elif [[ "$os_choice" == "opensuse" ]]; then
 			COMPREPLY=($(compgen -W "${VALID_VER_opensuse[*]}" -- "$cur"))
+		elif [[ "$os_choice" == "amzn" ]]; then
+			COMPREPLY=($(compgen -W "${VALID_VER_amzn[*]}" -- "$cur"))
 		else
 			# If OS not specified, show all versions
-			local all_versions="${VALID_VER_redhat[*]} ${VALID_VER_fedora[*]} ${VALID_VER_sles[*]} ${VALID_VER_opensuse[*]}"
+			local all_versions="${VALID_VER_redhat[*]} ${VALID_VER_fedora[*]} ${VALID_VER_sles[*]} ${VALID_VER_opensuse[*]} ${VALID_VER_amzn[*]}"
 			COMPREPLY=($(compgen -W "$all_versions" -- "$cur"))
 		fi
 		return 0
 		;;
 	--sync)
-		# Offer sync options: common, extras, testing, non-free, or PG versions
-		COMPREPLY=($(compgen -W "common extras testing non-free ${PG_ALL_VERSIONS[*]}" -- "$cur"))
+		# Offer sync options: common, extras, testing, non-free, pg, or PG versions
+		# (stable + testing-only, e.g. 19/20 - only meaningful combined with testing)
+		COMPREPLY=($(compgen -W "common extras testing non-free pg ${PG_ALL_VERSIONS[*]} ${pg_testing_only[*]}" -- "$cur"))
 		return 0
 		;;
 	*)
 		# If we're in --sync mode (following --sync values), continue offering sync options
 		if [[ -n "$sync_mode" && "$cur" != --* ]]; then
-			COMPREPLY=($(compgen -W "common extras testing non-free ${PG_ALL_VERSIONS[*]}" -- "$cur"))
+			COMPREPLY=($(compgen -W "common extras testing non-free pg ${PG_ALL_VERSIONS[*]} ${pg_testing_only[*]}" -- "$cur"))
 			return 0
 		fi
 		;;

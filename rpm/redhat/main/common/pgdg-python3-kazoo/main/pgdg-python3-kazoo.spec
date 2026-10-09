@@ -1,16 +1,20 @@
 %global modname kazoo
 
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __ospython %{_bindir}/python3.14
+%global python3_pkgversion 3.14
+%endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} >= 1500
 %global	__ospython %{_bindir}/python3.11
@@ -21,8 +25,8 @@
 %global python3_sitelib %(%{__ospython} -Esc "import sysconfig; print(sysconfig.get_path('purelib', vars={'platbase': '/usr', 'base': '%{_prefix}'}))")
 
 Name:		python%{python3_pkgversion}-%{modname}
-Version:	2.8.0
-Release:	42PGDG%{?dist}.1
+Version:	2.11.0
+Release:	2PGDG%{?dist}.1
 Summary:	Higher level Python Zookeeper client
 
 License:	Apache-2.0
@@ -50,6 +54,12 @@ find . -name '*.py' | xargs sed -i '1s|^#!python|#!%{__python3}|'
 
 %install
 %{__ospython} setup.py install --no-compile --root %{buildroot}
+%if 0%{?amzn} == 2023
+# AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+# alt-stack site-packages dir the way Fedora/RHEL's does, so __pycache__
+# never gets populated. Bytecompile explicitly instead.
+%py_byte_compile %{__ospython} %{buildroot}%{python3_sitelib}/%{modname}
+%endif
 
 #delete tests
 %{__rm} -fr %{buildroot}%{python3_sitelib}/%{modname}/tests/
@@ -60,6 +70,23 @@ find . -name '*.py' | xargs sed -i '1s|^#!python|#!%{__python3}|'
 %{python3_sitelib}/%{modname}-%{version}-py%{pybasever}.egg-info
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.11.0-2PGDG
+- Remove Fedora <= 42 support
+- Add missing Fedora 44 pin (python3.14)
+
+* Mon Aug 31 2026 Devrim Gunduz <devrim@gunduz.org> - 2.11.0-1PGDG.1
+- Update to 2.11.0 per changes described at:
+  https://pypi.org/project/kazoo/2.11.0/
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-44PGDG.1
+- Explicitly bytecompile with %%py_byte_compile on Amazon Linux 2023.
+  AL2023's brp-python-bytecompile doesn't auto-discover the python3.13
+  alt-stack site-packages dir, so __pycache__ was never populated.
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-43PGDG.1
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Mon Sep 22 2025 Devrim Gunduz <devrim@gunduz.org> - 2.8.0-42PGDG.1
 - Add Fedora 43 support
 

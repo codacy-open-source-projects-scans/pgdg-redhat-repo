@@ -1,16 +1,24 @@
 %global sname pg_statviz
 
-%if 0%{?fedora} && 0%{?fedora} == 43
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__ospython %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?rhel} == 9
+%global	__python3 %{_bindir}/python3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__ospython %{_bindir}/python3.13
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__ospython %{_bindir}/python3.11
@@ -23,25 +31,42 @@
 
 Summary:	CLI tool for time series analysis and visualization of PostgreSQL internal statistics.
 Name:		%{sname}
-Version:	0.9
-Release:	1PGDG%{dist}
+Version:	1.2
+Release:	10PGDG%{dist}
 License:	GPLv2+
 Source0:	https://github.com/vyruss/%{sname}/archive/refs/tags/v%{version}.tar.gz
-# To be removed in next release:
-Patch0:		%{sname}-%{version}-pyproject-license.patch
 URL:		https://github.com/vyruss/%{sname}
 
-BuildRequires:	python%{python3_pkgversion}-devel python%{python3_pkgversion}-wheel python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-wheel
+%if 0%{?suse_version}
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+%endif
 
 Requires:	python%{python3_pkgversion}-argh python%{python3_pkgversion}-kiwisolver
 Requires:	python%{python3_pkgversion}-matplotlib python%{python3_pkgversion}-numpy
 Requires:	python%{python3_pkgversion}-packaging python%{python3_pkgversion}-pandas
-Requires:	python%{python3_pkgversion}-plac python3-psycopg3 >= 3.2.1
+%if 0%{?rhel} == 9
+# python3-psycopg3 is for python3 (3.9) of RHEL 9:
+Requires:	python%{python3_pkgversion}-psycopg3 >= 3.2.1
+%else
+Requires:	python3-psycopg3 >= 3.2.1
+%endif
 Requires:	python%{python3_pkgversion}-pyparsing python%{python3_pkgversion}-six
 
-%if 0%{?fedora} >= 38 || 0%{?rhel} >= 8
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 10
 Requires:	python3-cycler python3-dateutil python3-pillow
 Requires:	python3-fonttools
+%endif
+
+%if 0%{?amzn} == 2023 || 0%{?rhel} == 9
+Requires:	python%{python3_pkgversion}-contourpy python%{python3_pkgversion}-cycler
+Requires:	python%{python3_pkgversion}-dateutil python%{python3_pkgversion}-fonttools
+Requires:	python%{python3_pkgversion}-pillow
 %endif
 
 %if 0%{?suse_version} >= 1500
@@ -50,6 +75,55 @@ Requires:	python%{python3_pkgversion}-Pillow python%{python3_pkgversion}-FontToo
 %endif
 
 BuildArch:	noarch
+
+# AI deps:
+%if 0%{?fedora} >= 43
+# Claude (not on Fedora 43: it has no httpx2 for anthropic 1.x, and 0.x
+# prints a pydantic warning with Python 3.14 on every run):
+%if 0%{?fedora} >= 44
+Requires:	python3-anthropic
+%endif
+# Local:
+Requires:	python3-ollama
+# OpenAI:
+Requires:	python3-openai
+# Gemini:
+Requires:	python3-google-genai
+%endif
+
+%if 0%{?rhel} && 0%{?rhel} == 10
+# Claude:
+Requires:	python3-anthropic
+# Local:
+Requires:	python3-ollama
+# OpenAI:
+Requires:	python3-openai
+# Gemini:
+Requires:	python3-google-genai
+%endif
+
+%if 0%{?amzn} == 2023 || 0%{?rhel} == 9
+# Claude:
+Requires:	python%{python3_pkgversion}-anthropic
+# Local:
+Requires:	python%{python3_pkgversion}-ollama
+# OpenAI:
+Requires:	python%{python3_pkgversion}-openai
+# Gemini:
+Requires:	python%{python3_pkgversion}-google-genai
+%endif
+
+%if 0%{?suse_version} == 1600
+# Claude:
+Requires:	python%{python3_pkgversion}-anthropic
+# Local (0.4.7 of SLES 16 has no "think" argument in chat(), which
+# pg_statviz uses; 0.5 and later are in the PostgreSQL RPM repository):
+Requires:	python%{python3_pkgversion}-ollama >= 0.5
+# OpenAI:
+Requires:	python%{python3_pkgversion}-openai
+# Gemini:
+Requires:	python%{python3_pkgversion}-google-genai
+%endif
 
 %description
 pg_statviz is a minimalist extension and utility pair for time series analysis
@@ -61,11 +135,14 @@ visualizations for selected time ranges on the stored stats snapshots,
 enabling the user to track PostgreSQL performance over time and potentially
 perform tuning or troubleshooting.
 
+Optionally, an AI analysis mode can produce per-module HTML reports with chart
+commentary from a cloud LLM (Claude, Gemini, or OpenAI), any OpenAI-compatible
+endpoint, or a local model via Ollama.
+
 Best served with pg_statviz extensions package, which includes the extension files.
 
 %prep
 %setup -q -n %{sname}-%{version}
-%patch -P 0 -p0
 
 %build
 %pyproject_wheel
@@ -77,10 +154,70 @@ Best served with pg_statviz extensions package, which includes the extension fil
 %defattr(644,root,root,755)
 %license LICENSE
 %attr(0755,root,root) %{_bindir}/%{sname}
-%{python3_sitelib}/%{sname}-%{version}.dist-info/*
+%{python3_sitelib}/%{sname}-%{version}.dist-info/
 %{python3_sitelib}/%{sname}
 
 %changelog
+* Wed Oct 07 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-10PGDG
+- Do not require plac on any distro: pg_statviz does not use it, and it
+  blocked the installation on Fedora.
+- Do not require python3-anthropic on Fedora 43, where anthropic 1.x
+  cannot be built (no httpx2). The Claude feature is not available there.
+- Support the OpenAI and Gemini AI features on Amazon Linux 2023.
+- Add SLES 16 support, with the Claude, local (Ollama), OpenAI and Gemini
+  AI features.
+- Add RHEL 9 support (python3.12), with the Claude, local (Ollama), OpenAI
+  and Gemini AI features. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/249
+
+* Wed Oct 07 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-9PGDG
+- Support the Claude AI feature on RHEL 10, and the Claude and local
+  (Ollama) AI features on Amazon Linux 2023. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/249
+- Add missing BR for %%pyproject_wheel macros.
+
+* Tue Oct 06 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-8PGDG
+- Fix Amazon Linux 2023 support: add the missing Requires (contourpy,
+  cycler, dateutil, fonttools, pillow), whose python3.13 packages are now
+  in the PostgreSQL RPM repository, and do not require plac there.
+  pg_statviz does not use it.
+
+* Mon Sep 21 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-7PGDG
+- Support AI features also on RHEL 10.
+
+* Sun Sep 20 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-6PGDG
+- Fix F-45 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-5PGDG
+- Add missing BR
+
+* Fri Aug 28 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-4PGDG
+- Package the .dist-info directory itself instead of globbing only its
+  contents (dist-info/*), so RHEL/Fedora's pythondist.attr generator
+  (which is anchored on the .dist-info directory entry) actually fires
+  and emits the correct runtime Requires. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.2-3PGDG
+- Also set __python3 (not just __ospython) for Amazon Linux 2023, so
+  %%pyproject_wheel/%%pyproject_install actually build against python3.13
+  instead of silently falling back to the system default python3
+  (__ospython only affects this repo's own macro computations, not
+  RPM's own pyproject/site-packages macros).
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 1.2-2PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Fri Aug 21 2026 Devrim Gündüz <devrim@gunduz.org> - 1.2-1PGDG
+- Update to 1.2 per changes described at:
+  https://github.com/vyruss/pg_statviz/releases/tag/v1.2
+
+* Wed May 27 2026 Devrim Gündüz <devrim@gunduz.org> - 1.1-1PGDG
+- Update to 1.1 per changes described at:
+  https://github.com/vyruss/pg_statviz/releases/tag/v1.0
+  https://github.com/vyruss/pg_statviz/releases/tag/v1.1
+
 * Thu Jan 15 2026 Devrim Gündüz <devrim@gunduz.org> - 0.9-1PGDG
 - Update to 0.9 per changes described at:
   https://github.com/vyruss/pg_statviz/releases/tag/v0.9

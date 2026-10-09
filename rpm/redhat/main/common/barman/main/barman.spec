@@ -1,35 +1,38 @@
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
+%global __ospython %{_bindir}/python3.15
+%global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} <= 44
 %global __ospython %{_bindir}/python3.14
 %global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} == 43
-%global __ospython %{_bindir}/python3.14
-%global python3_pkgversion 3.14
-%endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
 %endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
-%global	__ospython %{_bindir}/python3.12
-%global	python3_pkgversion 3.12
+%global __ospython %{_bindir}/python3.12
+%global python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global __ospython %{_bindir}/python3.13
+%global __python3 %{_bindir}/python3.13
+%global python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
-%global	__ospython %{_bindir}/python3.11
-%global	python3_pkgversion 311
+%global __ospython %{_bindir}/python3.11
+%global python3_pkgversion 311
 %endif
 %if 0%{?suse_version} == 1600
-%global	__ospython %{_bindir}/python3.13
-%global	python3_pkgversion 313
+%global __ospython %{_bindir}/python3.13
+%global python3_pkgversion 313
 %endif
+
+%{!?runselftest:%global runselftest 0}
 
 %{expand: %%global pybasever %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
 
-%global python_sitelib %(%{__ospython} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
+%global python_sitelib %(%{__ospython} -c "import sysconfig; print(sysconfig.get_path('purelib', vars={'platbase': '%{_prefix}', 'base': '%{_prefix}'}))")
 
 Summary:	Backup and Recovery Manager for PostgreSQL
 Name:		barman
-Version:	3.18.0
+Version:	3.20.1
 Release:	43PGDG%{?dist}
 License:	GPLv3
 Url:		https://www.pgbarman.org/
@@ -38,9 +41,45 @@ Source1:	%{name}.logrotate
 Source2:	%{name}.cron
 Source3:	%{name}-sysusers.conf
 Source4:	%{name}-tmpfiles.d
+Patch0:		barman-use-setuptools-build-backend.patch
+# Only applied on RHEL and AL 2023, where setuptools is older than 77 and does not know the
+# SPDX license expression and license-files of pyproject.toml. It is listed on
+# every distro, so that the SRPM always carries it.
+Patch1:		barman-use-legacy-license-metadata.patch
 BuildArch:	noarch
 
-BuildRequires:	python%{python3_pkgversion}-devel python%{python3_pkgversion}-setuptools
+BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
+%if 0%{?rhel} || 0%{?amzn}
+# setuptools before 70.1 (68 on RHEL 8/9, 69 on RHEL 10 and AL 2023) has no bdist_wheel of its own
+BuildRequires:	python%{python3_pkgversion}-wheel
+%endif
+BuildRequires:	systemd-rpm-macros
+%if 0%{?suse_version} >= 1600
+BuildRequires:	python-rpm-macros
+%else
+BuildRequires:	pyproject-rpm-macros
+%endif
+
+%if %runselftest
+%if 0%{?fedora} || 0%{?rhel} >= 10
+BuildRequires:	python3-pytest python3-psycopg2 python3-dateutil
+BuildRequires:	python3-argcomplete python3-lz4 python3-zstandard
+BuildRequires:	python3-snappy python3-cramjam python3-boto3
+BuildRequires:	python3-azure-identity python3-azure-storage-blob
+BuildRequires:	python3-azure-mgmt-compute python3-google-cloud-storage
+%endif
+%if 0%{?fedora}
+BuildRequires:	python3-mock
+%endif
+%if 0%{?rhel} && 0%{?rhel} <= 9
+BuildRequires:	python%{python3_pkgversion}-pytest python%{python3_pkgversion}-psycopg2
+BuildRequires:	python%{python3_pkgversion}-dateutil python%{python3_pkgversion}-lz4
+BuildRequires:	python%{python3_pkgversion}-zstandard python%{python3_pkgversion}-boto3
+BuildRequires:	python%{python3_pkgversion}-six
+%endif
+%endif
 
 Requires:	rsync >= 3.0.4 file systemd
 Requires:	python3-barman = %{version}
@@ -71,7 +110,15 @@ Requires:	python%{python3_pkgversion}-six
 Requires:	python%{python3_pkgversion}-zstandard
 %endif
 
-%if 0%{?fedora} && 0%{?fedora} >= 41
+%if 0%{?amzn}
+Requires:	python%{python3_pkgversion}-dateutil
+Requires:	python%{python3_pkgversion}-lz4
+Requires:	python%{python3_pkgversion}-psycopg2 >= 2.9.9
+Requires:	python%{python3_pkgversion}-six
+Requires:	python%{python3_pkgversion}-zstandard
+%endif
+
+%if 0%{?fedora} && 0%{?fedora} >= 43
 Requires:	python3-argcomplete python3-dateutil
 Requires:	python3-psycopg2 >= 2.9.9 python3-six
 Requires:	python3-lz4 python3-zstandard
@@ -83,7 +130,7 @@ Requires:	python3-psycopg2 >= 2.9.9 python3-six
 Requires:	python3-lz4 python3-zstandard
 %endif
 
-%if 0%{?suse_version} >= 1500
+%if 0%{?suse_version} >= 1600
 Requires:	python%{python3_pkgversion}-argcomplete
 Requires:	python%{python3_pkgversion}-lz4
 Requires:	python%{python3_pkgversion}-python-dateutil
@@ -97,12 +144,16 @@ Python libraries used by Barman.
 
 %prep
 %setup -q -n barman-release-%{version}
+%patch -P0 -p0
+%if 0%{?rhel} || 0%{?amzn}
+%patch -P1 -p0
+%endif
 
 %build
-%{__ospython} setup.py build
+%pyproject_wheel
 
 %install
-%{__ospython} setup.py install -O1 --skip-build --root %{buildroot}
+%pyproject_install
 %{__mkdir} -p %{buildroot}%{_sysconfdir}/bash_completion.d
 %{__mkdir} -p %{buildroot}%{_sysconfdir}/cron.d/
 %{__mkdir} -p %{buildroot}%{_sysconfdir}/logrotate.d/
@@ -122,6 +173,38 @@ touch %{buildroot}/var/log/barman/barman.log
 %{__mkdir} -p %{buildroot}/%{_tmpfilesdir}
 %{__install} -m 0644 %{SOURCE4} %{buildroot}/%{_tmpfilesdir}/%{name}.conf
 
+%check
+%if %runselftest
+# The tests use the mock module, which is not available for every Python
+# stack we build with. It is a backport of unittest.mock, so use that under
+# its name where it is missing.
+if ! %{__ospython} -c 'import mock' 2>/dev/null; then
+	%{__mkdir} -p mock-shim/mock
+	cat > mock-shim/mock/__init__.py <<SHIM
+import sys
+import unittest.mock
+
+unittest.mock.mock = unittest.mock
+sys.modules["mock"] = sys.modules["mock.mock"] = unittest.mock
+SHIM
+	export PYTHONPATH=$PWD/mock-shim
+fi
+# Run pytest by its executable: one test compares the program name in a help
+# output, which is different with "python -m pytest" as of Python 3.14.
+# RHEL 8 and 9 have no SDKs of Azure and Google Cloud, snappy and cramjam for
+# Python 3.12, and botocore cannot be imported there (no jmespath on RHEL 9),
+# so the tests of the cloud support are skipped there.
+PYTHONPATH=%{buildroot}%{python_sitelib}${PYTHONPATH:+:$PYTHONPATH} pytest-%{pybasever} tests \
+%if 0%{?rhel} && 0%{?rhel} <= 9
+	--ignore-glob='tests/test_*cloud*.py' \
+	--ignore=tests/test_compressor.py \
+	--ignore=tests/test_infofile.py \
+	--ignore=tests/test_output.py \
+	-k 'not cloud_backup_data_check_object_lock and not (TestSnapshotBackupExecutor and test_check_skipped_if_server_disabled)' \
+%endif
+	-p no:cacheprovider
+%endif
+
 %pre
 %sysusers_create_package %{name} %SOURCE3
 
@@ -129,8 +212,6 @@ touch %{buildroot}/var/log/barman/barman.log
 %defattr(-,root,root)
 %doc RELNOTES.md README.rst
 %{_bindir}/%{name}
-%doc %{_mandir}/man1/%{name}.1.gz
-%doc %{_mandir}/man5/%{name}.5.gz
 %config(noreplace) %{_sysconfdir}/bash_completion.d/
 %config(noreplace) %{_sysconfdir}/%{name}.conf
 %config(noreplace) %{_sysconfdir}/cron.d/%{name}
@@ -156,15 +237,62 @@ touch %{buildroot}/var/log/barman/barman.log
 %{_bindir}/barman-cloud-wal-restore
 %{_bindir}/barman-wal-archive
 %{_bindir}/barman-wal-restore
-%doc %{_mandir}/man1/barman*
 
 %files -n python3-barman
 %defattr(-,root,root)
 %doc RELNOTES.md README.rst
-%{python_sitelib}/%{name}-%{version}%{?extra_version:%{extra_version}}-py%{pybasever}.egg-info
+%{python_sitelib}/%{name}-%{version}.dist-info
 %{python_sitelib}/%{name}/
 
 %changelog
+* Fri Oct 2 2026 Devrim Gündüz <devrim@gunduz.org> - 3.20.1-43PGDG
+- Add %%check, running the upstream tests with pytest. It is disabled by
+  default; enable it with --define 'runselftest 1'.
+
+* Tue Sep 29 2026 Devrim Gündüz <devrim@gunduz.org> - 3.20.1-42PGDG
+- Update to 3.20.1, per changes described at:
+  https://github.com/EnterpriseDB/barman/releases/tag/release%2F3.20.1
+  This release fixes CVE-2026-93853: Barman trusted the snapshot
+  identifiers in the backup catalog, so anyone able to overwrite it could
+  make Barman delete unrelated cloud snapshots with its own credentials.
+- Drop the FreeBSD classifier fix from the build backend patch, as
+  upstream fixed it.
+- Refresh the legacy license metadata patch for 3.20.1, with less
+  context, so that it no longer includes the version line.
+
+* Thu Sep 10 2026 Devrim Gündüz <devrim@gunduz.org> - 3.20.0-43PGDG
+- Add missing BR
+- Build with setuptools instead of uv_build, using a patch that switches the
+  build backend in pyproject.toml, so that python3-uv-build is not needed as a
+  BR on any distro. The same patch fixes the "Operating System :: BSD ::
+  FreeBSD" classifier (the valid one is "Operating System :: POSIX :: BSD ::
+  FreeBSD"), which setuptools rejects when python3-trove-classifiers is
+  installed, while uv_build did not check it.
+- On RHEL and AL 2023, use the older license metadata form of pyproject.toml with a second
+  patch, as the setuptools there (68 on RHEL 8/9, 69 on RHEL 10) is older than
+  77 and rejects the SPDX license expression. Also add the wheel BR there, as
+  those setuptools versions cannot build a wheel without it.
+- Find the site-packages directory with sysconfig instead of distutils, which
+  Python 3.12+ does not have (it only worked through the setuptools shim).
+  Per https://github.com/pgdg-packaging/pgdg-rpms/issues/231
+
+* Fri Aug 28 2026 Devrim Gündüz <devrim@gunduz.org> - 3.20.0-42PGDG
+- Update to 3.20.0, per changes described at:
+  https://github.com/EnterpriseDB/barman/releases/tag/release%2F3.20.0
+- Drop SLES 15 support, as this version requires Python 3.12+
+
+* Tue Aug 25 2026 Devrim Gündüz <devrim@gunduz.org> - 3.19.1-43PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
+* Wed May 27 2026 Devrim Gündüz <devrim@gunduz.org> - 3.19.1-42PGDG
+- Update to 3.19.1, per changes described at:
+  https://github.com/EnterpriseDB/barman/releases/tag/release%2F3.19.1
+
+* Wed May 20 2026 Devrim Gündüz <devrim@gunduz.org> - 3.19.0-42PGDG
+- Update to 3.19.0, per changes described at:
+  https://github.com/EnterpriseDB/barman/releases/tag/release%2F3.19.0
+
 * Tue Apr 28 2026 Devrim Gündüz <devrim@gunduz.org> - 3.18.0-43PGDG
 - Use Python 3.14 on Fedora 44. Many BRs and Requires are not ready
   for 3.15.

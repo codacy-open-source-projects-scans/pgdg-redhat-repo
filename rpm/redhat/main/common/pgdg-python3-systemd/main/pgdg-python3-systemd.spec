@@ -1,20 +1,24 @@
 %global sname python-systemd
 
-%if 0%{?fedora} && 0%{?fedora} == 44
+%if 0%{?fedora} && 0%{?fedora} == 45
 %global __python3 %{_bindir}/python3.15
 %global python3_pkgversion 3.15
+%endif
+%if 0%{?fedora} && 0%{?fedora} == 44
+%global __python3 %{_bindir}/python3.14
+%global python3_pkgversion 3.14
 %endif
 %if 0%{?fedora} && 0%{?fedora} == 43
 %global __python3 %{_bindir}/python3.14
 %global python3_pkgversion 3.14
 %endif
-%if 0%{?fedora} && 0%{?fedora} <= 42
-%global	__python3 %{_bindir}/python3.13
-%global	python3_pkgversion 3.13
-%endif
 %if 0%{?rhel} && 0%{?rhel} <= 10
 %global	__python3 %{_bindir}/python3.12
 %global	python3_pkgversion 3.12
+%endif
+%if 0%{?amzn} == 2023
+%global	__python3 %{_bindir}/python3.13
+%global	python3_pkgversion 3.13
 %endif
 %if 0%{?suse_version} == 1500
 %global	__python3 %{_bindir}/python3.11
@@ -27,7 +31,7 @@
 
 Name:		python%{python3_pkgversion}-systemd
 Version:	235
-Release:	42PGDG%{?dist}
+Release:	44PGDG%{?dist}
 Summary:	Python module wrapping libsystemd functionality
 
 License:	LGPL-2.1-or-later
@@ -38,6 +42,8 @@ Patch0:		https://github.com/systemd/%{sname}/pull/140.patch
 
 BuildRequires:	make gcc systemd-devel
 BuildRequires:	python%{python3_pkgversion}-devel
+BuildRequires:	python%{python3_pkgversion}-pip
+BuildRequires:	python%{python3_pkgversion}-setuptools
 
 Provides:	python3-%{sname}%{?_isa} = %{version}-%{release}
 Provides:	python%{python3_pkgversion}dist(%{name}) = %{version}-%{release}
@@ -72,6 +78,18 @@ sed -i 's/py\.test/pytest/' Makefile
 %{python3_sitearch}/systemd_python-%{version}.dist-info
 
 %changelog
+* Fri Sep 11 2026 Devrim Gunduz <devrim@gunduz.org> - 235-44PGDG
+- Fix Fedora 44 mapped to python3.15 instead of python3.14
+- Add Fedora 45 support (python3.15)
+- Remove Fedora <= 42 support
+
+* Thu Sep 10 2026 Devrim Gunduz <devrim@gunduz.org> - 235-44PGDG
+- Add missing BR
+
+* Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 235-43PGDG
+- Build against the python3.13 alt-stack on Amazon Linux 2023, to keep
+  the Python stack consistent across all packages in the repo.
+
 * Thu Apr 23 2026 Devrim Gunduz <devrim@gunduz.org> - 235-42PGDG
 - Initial packaging for the PostgreSQL RPM repository to support
   patroni.

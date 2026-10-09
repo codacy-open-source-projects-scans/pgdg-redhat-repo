@@ -14,7 +14,7 @@ prep:
 	git pull
 
 	# Use spectool to download source files, especially tarballs.
-	spectool -g -S $(SPECFILE)
+	spectool -g -S --define "_sourcedir $(PWD)" $(SPECFILE)
 
 allclean:
 	git clean -dfx
@@ -25,11 +25,11 @@ clean:
 	rm -f *.tar *.tar.gz *.tar.bz2 *.tgz *.zip .xz
 
 include ../../../../global/Makefile.global-reporpm
+include ../../../../global/Makefile.global-reporpm-testing
 include ../../../../global/Makefile.global-common
 include ../../../../global/Makefile.global-common-testing
 include ../../../../global/Makefile.global-extras
 include ../../../../global/Makefile.global-extras-testing
-include ../../../../global/Makefile.global-PG13
 include ../../../../global/Makefile.global-PG14-testing
 include ../../../../global/Makefile.global-PG14
 include ../../../../global/Makefile.global-PG15-testing
@@ -41,3 +41,4 @@ include ../../../../global/Makefile.global-PG17
 include ../../../../global/Makefile.global-PG18-testing
 include ../../../../global/Makefile.global-PG18
 include ../../../../global/Makefile.global-PG19-testing
+include ../../../../global/Makefile.global-PG20-testing
