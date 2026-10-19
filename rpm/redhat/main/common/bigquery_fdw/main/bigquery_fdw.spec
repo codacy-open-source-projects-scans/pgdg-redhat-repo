@@ -21,23 +21,14 @@
 %if 0%{?suse_version} == 1500
 %global	__python3 %{_bindir}/python3.11
 %global	python3_pkgversion 311
+# Build the python311 flavor with the SUSE pyproject macros, instead of
+# the default python3 (3.6):
+%global	pythons python311
+%global	python3_sitelib %{_prefix}/lib/python3.11/site-packages
 %endif
 %if 0%{?suse_version} == 1600
 %global	__python3 %{_bindir}/python3.13
 %global	python3_pkgversion 313
-%endif
-
-# python3-google-auth and python3-google-oauthlib are retargeted to the
-# python3.11 alt-stack on SLES 15 specifically (their own python_requires
-# floors are newer than SLES 15's default python3.6), but keep their
-# plain "python3-" naming everywhere else, including SLES 16 (whose
-# default python3 is already new enough). This tracks their real
-# package names independently of this spec's own %%python3_pkgversion
-# above, which follows a different (Fedora dnf virtual-package) naming
-# convention. python3-google-cloud-bigquery is never retargeted anywhere.
-%global googauth_pkgversion 3
-%if 0%{?suse_version} == 1500
-%global googauth_pkgversion 311
 %endif
 
 %global debug_package %{nil}
@@ -45,7 +36,7 @@
 Summary:	BigQuery Foreign Data Wrapper for PostgreSQL
 Name:		bigquery_fdw
 Version:	2.0
-Release:	12PGDG%{?dist}
+Release:	15PGDG%{?dist}
 # The exceptions allow linking to OpenSSL and PostgreSQL's libpq
 License:	LGPLv3+ with exceptions
 Url:		https://github.com/gabfl/%{name}/
@@ -59,14 +50,18 @@ BuildRequires:	python%{python3_pkgversion}-wheel
 
 %if 0%{?suse_version} >= 1500
 BuildRequires:	python-rpm-macros
-%else
+%endif
+%if ! 0%{?suse_version} && 0%{?rhel} != 8
 BuildRequires:	pyproject-rpm-macros
 %endif
 
 Requires:	multicorn2
-Requires:	python%{googauth_pkgversion}-google-auth >= 2.48.0
-Requires:	python%{googauth_pkgversion}-google-oauthlib >= 1.2.4
-Requires:	python3-google-cloud-bigquery >= 1.24.0
+# The Google Cloud libraries live in the private PGDG Python tree, for the
+# interpreter that multicorn2 embeds. google-auth comes with them. Only the
+# packages of that tree provide the pgdg-python3.X-<module> names (on SUSE,
+# they are the package names); the distribution's python3.X-<module>
+# packages may satisfy versioned Requires on the usual names with an Epoch:
+Requires:	pgdg-python%{python3_pkgversion}-google-cloud-bigquery >= 3.46.1
 
 %description
 bigquery_fdw is a BigQuery foreign data wrapper for PostgreSQL using
@@ -77,14 +72,60 @@ supports most of BigQuery's data types and operators.
 
 %prep
 %setup -q -n %{name}-%{version}
+# Make bigquery_fdw use the private PGDG Python tree, which has the Google
+# Cloud libraries it needs, ahead of the system site-packages. The package
+# is always imported before its submodules, both by multicorn2 and by
+# bq_client_test. Upstream's __init__.py is empty:
+test ! -s src/__init__.py
+%{__cat} > src/__init__.py << 'EOF'
+# Added by the PGDG RPM packaging: use the private PGDG Python tree, which
+# has the Google Cloud libraries bigquery_fdw needs.
+import os as _os
+import sys as _sys
+_pgdg_sitelib = '/usr/lib/pgdg-python/python%d.%d/site-packages' % _sys.version_info[:2]
+if _pgdg_sitelib not in _sys.path:
+    _sys.path.insert(0, _pgdg_sitelib)
+# setuptools "-nspkg.pth" files of the system packages (e.g. those of
+# protobuf and google-cloud-core) may have created these namespace packages
+# at startup, with a path that only has the directory of that .pth file,
+# and that is not recalculated, as the private "google" is a regular
+# package. Set their path to the private tree first, then the directories
+# of all sys.path entries (e.g. /usr/lib64 and /usr/lib, where the system
+# google-auth is), as pkgutil.extend_path() would:
+for _name in ('google', 'google.cloud'):
+    _mod = _sys.modules.get(_name)
+    _dir = _os.path.join(_pgdg_sitelib, *_name.split('.'))
+    if _mod is None or not _os.path.isdir(_dir):
+        continue
+    _path = [_dir]
+    for _p in ([_os.path.join(_e, *_name.split('.')) for _e in _sys.path
+                if isinstance(_e, str)] + list(getattr(_mod, '__path__', []))):
+        if _p not in _path and _os.path.isdir(_p):
+            _path.append(_p)
+    _mod.__path__ = _path
+EOF
 
 %build
 # Change /usr/bin/python to /usr/bin/python2 in the scripts:
 for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\/env python3/g" $i; done
+%if 0%{?rhel} == 8
+# There are no pyproject-rpm-macros on RHEL 8:
+%{__python3} -m pip wheel --no-deps --no-build-isolation --no-index \
+	--disable-pip-version-check -w pgdg-dist .
+%else
 %pyproject_wheel
+%endif
 
 %install
+%if 0%{?rhel} == 8
+%{__python3} -m pip install --no-deps --no-index --no-compile \
+	--disable-pip-version-check --ignore-installed \
+	--root %{buildroot} --prefix %{_prefix} pgdg-dist/*.whl
+%{__rm} -f %{buildroot}%{python3_sitelib}/*.dist-info/direct_url.json
+echo rpm > $(echo %{buildroot}%{python3_sitelib}/*.dist-info)/INSTALLER
+%else
 %pyproject_install
+%endif
 
 %files
 %defattr(-,root,root)
@@ -96,6 +137,33 @@ for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\
 %{python3_sitelib}/%{name}-%{version}.dist-info
 
 %changelog
+* Thu Oct 15 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0-15PGDG
+- Fix "cannot import name 'bigquery' from 'google.cloud'" on Fedora and
+  RHEL 10, when the distribution's Google Cloud packages are installed:
+  their -nspkg.pth files create the google and google.cloud namespace
+  packages at startup, and __init__.py did not add the private tree to
+  their path in all cases.
+- Require pgdg-python3.X-google-cloud-bigquery, which only the private
+  tree provides, so that the distribution's packages (some have an Epoch)
+  do not satisfy the dependencies of the stack. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/367
+
+* Tue Oct 13 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0-14PGDG
+- Use the new private Python stack (google-cloud-bigquery 3.46.1 and its
+  dependencies, in /usr/lib/pgdg-python), built for the interpreter that
+  multicorn2 embeds. The python3-google-* packages were built for the
+  default python3, which bigquery_fdw could not import on most distros.
+- Drop the dependency on google-oauthlib, which bigquery_fdw does not use.
+- Build with pip on RHEL 8, which has no pyproject-rpm-macros.
+- Per https://github.com/pgdg-packaging/pgdg-rpms/issues/367
+
+* Sun Oct 11 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0-13PGDG
+- Build the python311 flavor on SLES 15. The SUSE pyproject macros built
+  for the default python3 (3.6), so the build failed there. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+- Set python3_sitelib to the python3.11 one on SLES 15, too: the SUSE macro
+  points to the default python3 (3.6).
+
 * Mon Sep 14 2026 Devrim Gunduz <devrim@gunduz.org> - 2.0-12PGDG
 - Refresh the stale, hardcoded exact-version Requires on
   python3-google-auth (was = 1.14.3), python3-google-oauthlib (was =

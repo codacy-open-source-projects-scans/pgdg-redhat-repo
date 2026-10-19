@@ -18,7 +18,7 @@
 Summary:	Import map data from OpenStreetMap to a PostgreSQL database
 Name:		%{sname}
 Version:	2.3.1
-Release:	2PGDG%{?dist}
+Release:	3PGDG%{?dist}
 License:	GPLv2
 Source0:	https://github.com/%{sname}-dev/%{sname}/archive/refs/tags/%{version}.tar.gz
 URL:		https://github.com/%{sname}-dev/%{sname}
@@ -35,13 +35,6 @@ BuildRequires:	zlib-devel
 BuildRequires:	protozero-devel libosmium-devel
 %endif
 
-%if 0%{?suse_version} == 1500
-BuildRequires:	libboost_headers1_66_0-devel libbz2-devel
-BuildRequires:	Catch2-2-devel clang-tools
-BuildRequires:	libexpat-devel nlohmann_json-devel
-BuildRequires:	lua54-devel
-%endif
-
 %if 0%{?suse_version} == 1600
 BuildRequires:	libboost_headers1_86_0-devel libbz2-devel
 BuildRequires:	Catch2-2-devel clang-tools
@@ -54,7 +47,11 @@ BuildRequires:	boost-devel bzip2-devel catch2-devel
 BuildRequires:	clang-tools-extra expat-devel json-devel lua-devel
 %endif
 
-%if 0%{?fedora} >= 43 || 0%{?rhel} >= 10
+# osm2pgsql-gen is built when OpenCV and Potrace are found. Not on Fedora: its
+# OpenCV links the GDAL of Fedora, which needs the libpq of Fedora (versioned
+# RHPG_* symbols), not libpq5, so osm2pgsql-gen would not link, or would link
+# only when a PGDG GDAL with the same soname happens to be installed:
+%if 0%{?rhel} >= 10
 BuildRequires:	opencv-devel potrace-devel
 %endif
 
@@ -69,6 +66,8 @@ geocoding with Nominatim, or general analysis.
 %setup -q -n %{sname}-%{version}
 
 %build
+# CMAKE_INSTALL_RPATH: find our PROJ through an RPATH, instead of relying
+# on its ld.so.conf.d file.
 %{__install} -d build
 pushd build
 cmake .. \
@@ -76,6 +75,10 @@ cmake .. \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DPROJ_LIBRARY=%{projinstdir}/lib64/libproj.so \
 	-DPROJ6_INCLUDE_DIR=%{projinstdir}/include \
+	-DCMAKE_INSTALL_RPATH=%{projinstdir}/lib64 \
+%if 0%{?fedora}
+	-DCMAKE_DISABLE_FIND_PACKAGE_OpenCV=ON \
+%endif
 	-DEXTERNAL_FMT=OFF \
 %if 0%{?fedora} >= 40
 	-DEXTERNAL_LIBOSMIUM=ON \
@@ -108,7 +111,7 @@ popd
 %defattr(755,root,root,755)
 %{_bindir}/%{sname}
 %{_bindir}/%{sname}-expire
-%if 0%{?fedora} >= 43 || 0%{?rhel} >= 10
+%if 0%{?rhel} >= 10
 %{_bindir}/%{sname}-gen
 %endif
 %{_bindir}/%{sname}-replication
@@ -116,6 +119,17 @@ popd
 %{_datadir}/%{sname}/*.style
 
 %changelog
+* Mon Oct 12 2026 Devrim Gündüz <devrim@gunduz.org> - 2.3.1-3PGDG
+- Link the binaries with an RPATH to PROJ, instead of relying on the
+  ld.so.conf.d file of PROJ. Per
+  https://github.com/pgdg-packaging/pgdg-rpms/issues/359
+- Do not build osm2pgsql-gen on Fedora: the OpenCV of Fedora links the
+  GDAL of Fedora, which needs the libpq of Fedora instead of libpq5, so
+  osm2pgsql-gen did not link in a clean build root.
+- Remove SLES 15 support: osm2pgsql 2.3.1 needs the CMake package
+  configuration files of Boost, which are only shipped with Boost 1.70
+  and later, and SLES 15 only has Boost 1.66.
+
 * Sun Sep 20 2026 Devrim Gündüz <devrim@gunduz.org> - 2.3.1-2PGDG
 - Install osm2pgsql-gen on RHEL 10 and Fedora.
 

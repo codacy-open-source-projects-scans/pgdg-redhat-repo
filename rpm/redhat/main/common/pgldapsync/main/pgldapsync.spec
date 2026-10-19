@@ -26,16 +26,14 @@
 %global	python3_pkgversion 313
 %endif
 
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 8 || 0%{?suse_version} == 1600 || 0%{?amzn} == 2023
-%{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:4])"`)}
-%else
-%{expand: %%global pyver %(echo `%{__ospython} -c "import sys; sys.stdout.write(sys.version[:3])"`)}
-%endif
+# The package is built with %%{__python3}, so the egg-info directory name has
+# its version, which is not always the one of %%{__ospython} (SLES 15):
+%{expand: %%global pyver %(echo `%{__python3} -c "import sys; sys.stdout.write('.'.join(map(str, sys.version_info[:2])))"`)}
 
 Summary:	A tool for syncing LDAP users to Postgres Roles
 Name:		%{sname}
 Version:	1.0.0
-Release:	17PGDG%{?dist}
+Release:	18PGDG%{?dist}
 License:	PostgreSQL
 URL:		https://github.com/enterprisedb/%{sname}
 Source0:	https://github.com/EnterpriseDB/%{sname}/archive/refs/tags/%{sname}-%{version}.tar.gz
@@ -98,6 +96,14 @@ for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\
 %{python3_sitelib}/%{sname}/pgutils/__pycache__/*.py*
 
 %changelog
+* Sun Oct 11 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-18PGDG
+- Get the Python version of the egg-info directory name from %%{__python3},
+  which builds the package, instead of %%{__ospython}. On SLES 15 they
+  differ (3.6 and 3.11), and the version was cut to "3.1" there, so the
+  build failed. Per https://github.com/pgdg-packaging/pgdg-rpms/issues/226
+- Escape the macros in the older changelog entries: rpm expands them, and
+  %%py_byte_compile broke the parsing of the spec on RHEL 9.
+
 * Sun Sep 20 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-17PGDG
 - Add Fedora 45 support
 
@@ -115,21 +121,21 @@ for i in `find . -iname "*.py"`; do sed -i "s/\/usr\/bin\/env python/\/usr\/bin\
   https://github.com/pgdg-packaging/pgdg-rpms/issues/226
 
 * Thu Aug 27 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-13PGDG
-- Pass %{__ospython} instead of %{__python3} to %py_byte_compile on
-  Amazon Linux 2023. %{__python3} left the macro's %1 unexpanded
-  during %install, causing the bytecompile to silently no-op and the
-  __pycache__ files to still be missing at %files time.
+- Pass %%{__ospython} instead of %%{__python3} to %%py_byte_compile on
+  Amazon Linux 2023. %%{__python3} left the macro's %%1 unexpanded
+  during %%install, causing the bytecompile to silently no-op and the
+  __pycache__ files to still be missing at %%files time.
 
 * Thu Aug 27 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-12PGDG
-- Explicitly run %py_byte_compile on Amazon Linux 2023, too, so the
-  __pycache__/*.pyc files listed in %files actually exist in the
+- Explicitly run %%py_byte_compile on Amazon Linux 2023, too, so the
+  __pycache__/*.pyc files listed in %%files actually exist in the
   buildroot when building against the python3.13 alt-stack. Unlike
-  SUSE's %py3_compile, %py_byte_compile also needs the interpreter
+  SUSE's %%py3_compile, %%py_byte_compile also needs the interpreter
   binary passed in.
 
 * Tue Aug 25 2026 Devrim Gunduz <devrim@gunduz.org> - 1.0.0-11PGDG
 - Also set __python3 (not just __ospython) for Amazon Linux 2023, so
-  %pyproject_wheel/%pyproject_install actually build against python3.13
+  %%pyproject_wheel/%%pyproject_install actually build against python3.13
   instead of silently falling back to the system default python3
   (__ospython only affects this repo's own macro computations, not
   RPM's own pyproject/site-packages macros).
